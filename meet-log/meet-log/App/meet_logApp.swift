@@ -11,7 +11,12 @@ import SwiftUI
 struct meet_logApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RecorderView()
+        }
+        .defaultSize(width: 420, height: 580)
+        .windowResizability(.contentSize)
+        .commands {
+            AppCommands()
         }
     }
 }
