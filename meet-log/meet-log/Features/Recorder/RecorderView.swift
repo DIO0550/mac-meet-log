@@ -159,7 +159,3 @@ private struct RecorderErrorBanner: View {
         )
     }
 }
-
-#Preview {
-    RecorderView()
-}

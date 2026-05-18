@@ -1,0 +1,30 @@
+name: PR Tests
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Xcode tests
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      # Official action: https://github.com/actions/checkout
+      # Resolved from v6.0.2 on 2026-05-19.
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Run all shared scheme tests
+        run: |
+          xcodebuild test \
+            -project meet-log/meet-log.xcodeproj \
+            -scheme meet-log \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO

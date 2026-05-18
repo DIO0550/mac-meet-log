@@ -77,13 +77,3 @@ private struct LevelRow: Identifiable {
         label
     }
 }
-
-#Preview {
-    RecorderLevelView(
-        level: RecorderLevelSnapshot(systemAudio: 0.42, microphone: 0.68),
-        waveform: RecorderWaveform(samples: [0.1, 0.34, 0.22, 0.7, 0.48, 0.16, 0.56, 0.26]),
-        isActive: true
-    )
-    .padding()
-    .frame(width: 420)
-}

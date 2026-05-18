@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    env:
+      DERIVED_DATA_PATH: build/DerivedData
+
+    steps:
+      # Official action: https://github.com/actions/checkout
+      # Resolved from v6.0.2 on 2026-05-19.
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Ensure release does not already exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Release $TAG_NAME already exists. Refusing to replace it."
+            exit 1
+          fi
+
+      - name: Build unsigned app
+        run: |
+          xcodebuild build \
+            -project meet-log/meet-log.xcodeproj \
+            -scheme meet-log \
+            -configuration Release \
+            -destination 'platform=macOS' \
+            -derivedDataPath "$DERIVED_DATA_PATH" \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package app
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          APP_PATH="$DERIVED_DATA_PATH/Build/Products/Release/meet-log.app"
+          ASSET_NAME="meet-log-${TAG_NAME}.zip"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "App bundle was not found at $APP_PATH."
+            exit 1
+          fi
+
+          ditto -c -k --keepParent "$APP_PATH" "$ASSET_NAME"
+
+          if [ ! -s "$ASSET_NAME" ]; then
+            echo "Release asset $ASSET_NAME was not created or is empty."
+            exit 1
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          ASSET_NAME="meet-log-${TAG_NAME}.zip"
+          gh release create "$TAG_NAME" "$ASSET_NAME" \
+            --title "$TAG_NAME" \
+            --notes "Unsigned macOS app build for $TAG_NAME."

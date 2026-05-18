@@ -53,21 +53,3 @@ struct RecordingCompleteView: View {
         )
     }
 }
-
-#Preview {
-    RecordingCompleteView(
-        completion: RecordingCompletion(
-            result: .init(
-                duration: .seconds(185),
-                systemAudioURL: nil,
-                microphoneURL: nil,
-                mixdownURL: URL(filePath: "/Users/dio/Music/meet-log/Meet Log.m4a"),
-                displayFileName: "Meet Log 2026-05-18T01-23-45"
-            )
-        ),
-        revealAction: {},
-        dismissAction: {}
-    )
-    .padding()
-    .frame(width: 420)
-}
