@@ -7,6 +7,7 @@ struct RecorderControls: View {
     var body: some View {
         VStack(spacing: 16) {
             sourceToggles
+            microphonePicker
             commandButtons
         }
     }
@@ -31,6 +32,55 @@ struct RecorderControls: View {
                 viewModel.setMicrophoneEnabled(!viewModel.sources.microphoneEnabled)
             }
         }
+    }
+
+    private var microphonePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Label("Microphone", systemImage: "mic.fill")
+                    .font(.callout.weight(.medium))
+
+                Spacer(minLength: 0)
+
+                if viewModel.isSwitchingMicrophoneInput {
+                    ProgressView()
+                        .controlSize(.small)
+
+                    Text("Switching")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Picker(
+                "Microphone",
+                selection: Binding(
+                    get: { viewModel.selectedMicrophoneDeviceID ?? "" },
+                    set: { newValue in
+                        viewModel.selectMicrophoneDevice(id: newValue.isEmpty ? nil : newValue)
+                    }
+                )
+            ) {
+                Text(viewModel.defaultMicrophoneDeviceDisplayName)
+                    .tag("")
+
+                ForEach(viewModel.microphoneDevices) { device in
+                    Text(device.displayName)
+                        .tag(device.id)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .disabled(!viewModel.canSelectMicrophoneInput)
+            .help(microphonePickerHelp)
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+        )
+        .opacity(viewModel.sources.microphoneEnabled ? 1 : 0.58)
     }
 
     @ViewBuilder
@@ -69,6 +119,22 @@ struct RecorderControls: View {
         }
 
         return "Start Recording"
+    }
+
+    private var microphonePickerHelp: String {
+        if viewModel.sources.microphoneEnabled == false {
+            return "Turn on microphone recording to choose an input"
+        }
+
+        if viewModel.isSwitchingMicrophoneInput {
+            return "Microphone input is switching"
+        }
+
+        if viewModel.isFinalizing {
+            return "Recording is saving"
+        }
+
+        return "Choose microphone input"
     }
 }
 
