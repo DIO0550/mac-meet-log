@@ -26,18 +26,60 @@ public actor DualTrackRecorder {
         self.eventContinuation = eventContinuation
     }
 
-    public func start(sources: RecordingSources) async throws {
+    public func start(
+        sources: RecordingSources,
+        microphoneInput: MicrophoneInputDeviceSelection = .systemDefault
+    ) async throws {
         let states = try await session.start(sources: sources)
         publish(states)
 
         do {
-            activeCaptureSession = try await makeCaptureSession(sources: sources)
+            activeCaptureSession = try await makeCaptureSession(
+                sources: sources,
+                microphoneInput: microphoneInput
+            )
             try await activeCaptureSession?.start()
         } catch {
             activeCaptureSession?.stop()
             activeCaptureSession = nil
             let recorderError = normalize(error, fallback: "Could not start recording.")
             publish(await session.fail(with: recorderError))
+            throw recorderError
+        }
+    }
+
+    public func microphoneInputDevices() throws -> [AudioInputDevice] {
+        try dependencies.microphoneDeviceProvider.devices()
+    }
+
+    public func microphoneInputDeviceChanges() -> AsyncStream<[AudioInputDevice]> {
+        dependencies.microphoneDeviceProvider.deviceChanges()
+    }
+
+    public func switchMicrophoneInput(to selection: MicrophoneInputDeviceSelection) async throws {
+        let currentState = await session.state
+
+        guard currentState.allowsMicrophoneInputSwitch else {
+            throw RecorderError.invalidState(
+                operation: "switch microphone input",
+                state: currentState.debugName
+            )
+        }
+
+        guard let activeCaptureSession else {
+            throw RecorderError.invalidState(operation: "switch microphone input", state: "idle")
+        }
+
+        do {
+            try await activeCaptureSession.switchMicrophoneCapture { processor in
+                dependencies.microphoneCaptureFactory(selection) { buffer, time in
+                    processor.append(buffer, time: time)
+                }
+            }
+            eventContinuation.yield(.microphoneInputDeviceSwitched(selection))
+        } catch {
+            let recorderError = normalize(error, fallback: "Could not switch microphone input.")
+            eventContinuation.yield(.microphoneInputDeviceSwitchFailed(selection, recorderError))
             throw recorderError
         }
     }
@@ -91,12 +133,16 @@ public actor DualTrackRecorder {
         }
     }
 
-    private func makeCaptureSession(sources: RecordingSources) async throws -> ActiveCaptureSession {
+    private func makeCaptureSession(
+        sources: RecordingSources,
+        microphoneInput: MicrophoneInputDeviceSelection
+    ) async throws -> ActiveCaptureSession {
         let outputDirectory = dependencies.outputDirectoryFactory(configuration.outputDirectory)
         let startDate = await session.startDate ?? Date()
         let outputFileSet = try outputDirectory.fileSet(for: startDate)
         var processors: [RecordingTrack: TrackProcessor] = [:]
-        var captures: [any AudioCapture] = []
+        var systemAudioCaptures: [any AudioCapture] = []
+        var microphoneCapture: (any AudioCapture)?
         let eventHandler: @Sendable (RecorderEvent) -> Void = { [eventContinuation] event in
             eventContinuation.yield(event)
         }
@@ -105,7 +151,7 @@ public actor DualTrackRecorder {
             let writer = try dependencies.writerFactory(.systemAudio, outputFileSet.systemAudioURL)
             let processor = TrackProcessor(track: .systemAudio, writer: writer, eventHandler: eventHandler)
             processors[.systemAudio] = processor
-            captures.append(dependencies.systemAudioCaptureFactory { buffer, time in
+            systemAudioCaptures.append(dependencies.systemAudioCaptureFactory { buffer, time in
                 processor.append(buffer, time: time)
             })
         }
@@ -114,13 +160,14 @@ public actor DualTrackRecorder {
             let writer = try dependencies.writerFactory(.microphone, outputFileSet.microphoneURL)
             let processor = TrackProcessor(track: .microphone, writer: writer, eventHandler: eventHandler)
             processors[.microphone] = processor
-            captures.append(dependencies.microphoneCaptureFactory { buffer, time in
+            microphoneCapture = dependencies.microphoneCaptureFactory(microphoneInput) { buffer, time in
                 processor.append(buffer, time: time)
-            })
+            }
         }
 
         return ActiveCaptureSession(
-            captures: captures,
+            systemAudioCaptures: systemAudioCaptures,
+            microphoneCapture: microphoneCapture,
             processors: processors,
             outputFileSet: outputFileSet
         )
@@ -167,15 +214,18 @@ public actor DualTrackRecorder {
 private final class ActiveCaptureSession {
     let outputFileSet: OutputFileSet
 
-    private let captures: [any AudioCapture]
+    private let systemAudioCaptures: [any AudioCapture]
     private let processors: [RecordingTrack: TrackProcessor]
+    private var microphoneCapture: (any AudioCapture)?
 
     init(
-        captures: [any AudioCapture],
+        systemAudioCaptures: [any AudioCapture],
+        microphoneCapture: (any AudioCapture)?,
         processors: [RecordingTrack: TrackProcessor],
         outputFileSet: OutputFileSet
     ) {
-        self.captures = captures
+        self.systemAudioCaptures = systemAudioCaptures
+        self.microphoneCapture = microphoneCapture
         self.processors = processors
         self.outputFileSet = outputFileSet
     }
@@ -207,5 +257,53 @@ private final class ActiveCaptureSession {
         let systemAudioURL = try processors[.systemAudio]?.close()
         let microphoneURL = try processors[.microphone]?.close()
         return (systemAudioURL, microphoneURL)
+    }
+
+    func switchMicrophoneCapture(
+        makeCapture: (TrackProcessor) -> any AudioCapture
+    ) async throws {
+        guard let processor = processors[.microphone],
+              let currentCapture = microphoneCapture else {
+            throw RecorderError.microphoneNotEnabled("Microphone capture is not enabled for this recording.")
+        }
+
+        let replacementCapture = makeCapture(processor)
+        try await replacementCapture.start()
+        currentCapture.stop()
+        microphoneCapture = replacementCapture
+    }
+
+    private var captures: [any AudioCapture] {
+        systemAudioCaptures + [microphoneCapture].compactMap { $0 }
+    }
+}
+
+private extension RecorderState {
+    var allowsMicrophoneInputSwitch: Bool {
+        switch self {
+        case .recording, .paused:
+            true
+        case .idle, .preparing, .finalizing, .complete, .failed:
+            false
+        }
+    }
+
+    var debugName: String {
+        switch self {
+        case .idle:
+            "idle"
+        case .preparing:
+            "preparing"
+        case .recording:
+            "recording"
+        case .paused:
+            "paused"
+        case .finalizing:
+            "finalizing"
+        case .complete:
+            "complete"
+        case .failed:
+            "failed"
+        }
     }
 }

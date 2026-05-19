@@ -4,13 +4,31 @@ import Foundation
 
 final class FakeRecorderHarness {
     let baseURL: URL
-    var microphoneCapture = FakeAudioCapture()
+    private var microphoneCaptures = [FakeAudioCapture()]
     var systemAudioCapture = FakeAudioCapture()
+    var microphoneDeviceProvider = FakeMicrophoneDeviceProvider(devices: AudioInputDevice.previewDevices)
     var mixdownExporter = FakeMixdownExporter()
+    private(set) var requestedMicrophoneSelections: [MicrophoneInputDeviceSelection] = []
     private(set) var writers: [RecordingTrack: FakeTrackWriter] = [:]
 
     init(baseURL: URL) {
         self.baseURL = baseURL
+    }
+
+    var microphoneCapture: FakeAudioCapture {
+        microphoneCaptures[0]
+    }
+
+    func enqueueMicrophoneCapture(_ capture: FakeAudioCapture) {
+        microphoneCaptures.append(capture)
+    }
+
+    func microphoneCapture(at index: Int) -> FakeAudioCapture? {
+        guard microphoneCaptures.indices.contains(index) else {
+            return nil
+        }
+
+        return microphoneCaptures[index]
     }
 
     var dependencies: RecorderDependencies {
@@ -21,8 +39,24 @@ final class FakeRecorderHarness {
                 self?.writers[track] = writer
                 return writer
             },
-            microphoneCaptureFactory: { [microphoneCapture] _ in microphoneCapture },
+            microphoneCaptureFactory: { [weak self] selection, _ in
+                guard let self else {
+                    return FakeAudioCapture()
+                }
+
+                let index = self.requestedMicrophoneSelections.count
+                self.requestedMicrophoneSelections.append(selection)
+
+                if self.microphoneCaptures.indices.contains(index) {
+                    return self.microphoneCaptures[index]
+                }
+
+                let capture = FakeAudioCapture()
+                self.microphoneCaptures.append(capture)
+                return capture
+            },
             systemAudioCaptureFactory: { [systemAudioCapture] _ in systemAudioCapture },
+            microphoneDeviceProvider: microphoneDeviceProvider,
             mixdownExporter: mixdownExporter
         )
     }
@@ -98,5 +132,33 @@ final class FakeMixdownExporter: MixdownExporting {
         }
 
         return destinationURL
+    }
+}
+
+final class FakeMicrophoneDeviceProvider: MicrophoneDeviceProviding, @unchecked Sendable {
+    var devicesResult: Result<[AudioInputDevice], RecorderError>
+    private var continuation: AsyncStream<[AudioInputDevice]>.Continuation?
+
+    init(devices: [AudioInputDevice]) {
+        self.devicesResult = .success(devices)
+    }
+
+    func devices() throws -> [AudioInputDevice] {
+        try devicesResult.get()
+    }
+
+    func deviceChanges() -> AsyncStream<[AudioInputDevice]> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            self.continuation = continuation
+
+            if case let .success(devices) = devicesResult {
+                continuation.yield(devices)
+            }
+        }
+    }
+
+    func send(_ devices: [AudioInputDevice]) {
+        devicesResult = .success(devices)
+        continuation?.yield(devices)
     }
 }

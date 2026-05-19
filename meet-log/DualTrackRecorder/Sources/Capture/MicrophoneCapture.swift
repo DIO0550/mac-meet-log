@@ -1,12 +1,21 @@
 import AVFoundation
+import AudioToolbox
 import Foundation
 
 final class MicrophoneCapture: AudioCapture {
     private let engine = AVAudioEngine()
+    private let deviceSelection: MicrophoneInputDeviceSelection
+    private let deviceProvider: any MicrophoneDeviceProviding
     private let bufferHandler: AudioBufferHandler
     private var isRunning = false
 
-    init(bufferHandler: @escaping AudioBufferHandler) {
+    init(
+        deviceSelection: MicrophoneInputDeviceSelection = .systemDefault,
+        deviceProvider: any MicrophoneDeviceProviding = CoreAudioMicrophoneDeviceProvider(),
+        bufferHandler: @escaping AudioBufferHandler
+    ) {
+        self.deviceSelection = deviceSelection
+        self.deviceProvider = deviceProvider
         self.bufferHandler = bufferHandler
     }
 
@@ -18,6 +27,8 @@ final class MicrophoneCapture: AudioCapture {
         try await verifyMicrophonePermission()
 
         do {
+            try configureSelectedInputDevice()
+
             let inputNode = engine.inputNode
             let format = inputNode.outputFormat(forBus: 0)
 
@@ -65,6 +76,35 @@ final class MicrophoneCapture: AudioCapture {
             throw RecorderError.permissionDenied("Microphone permission was denied.")
         @unknown default:
             throw RecorderError.permissionDenied("Microphone permission is unavailable.")
+        }
+    }
+
+    private func configureSelectedInputDevice() throws {
+        guard let deviceID = deviceSelection.deviceID else {
+            return
+        }
+
+        guard let audioDeviceID = AudioDeviceID(deviceID),
+              try deviceProvider.containsDevice(id: deviceID) else {
+            throw RecorderError.audioInputDeviceUnavailable("Audio input device is unavailable: \(deviceID)")
+        }
+
+        guard let audioUnit = engine.inputNode.audioUnit else {
+            throw RecorderError.captureFailed("Could not access microphone input audio unit.")
+        }
+
+        var selectedDeviceID = audioDeviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &selectedDeviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+
+        guard status == noErr else {
+            throw RecorderError.audioInputDeviceUnavailable("Audio input device is unavailable: \(deviceID)")
         }
     }
 }

@@ -6,6 +6,8 @@ public enum RecorderError: Error, Equatable, LocalizedError, Sendable {
     case outputFailed(String)
     case invalidState(operation: String, state: String)
     case invalidSources(String)
+    case audioInputDeviceUnavailable(String)
+    case microphoneNotEnabled(String)
     case mixdownFailed(String)
 
     public var errorDescription: String? {
@@ -14,6 +16,8 @@ public enum RecorderError: Error, Equatable, LocalizedError, Sendable {
              let .captureFailed(message),
              let .outputFailed(message),
              let .invalidSources(message),
+             let .audioInputDeviceUnavailable(message),
+             let .microphoneNotEnabled(message),
              let .mixdownFailed(message):
             message
         case let .invalidState(operation, state):
