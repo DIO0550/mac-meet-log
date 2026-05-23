@@ -5,8 +5,9 @@ struct RecorderControls: View {
     @ObservedObject var viewModel: RecorderViewModel
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             sourceToggles
+            sourceAccessButtons
             microphonePicker
             commandButtons
         }
@@ -30,6 +31,30 @@ struct RecorderControls: View {
                 isDisabled: !viewModel.canEditSources
             ) {
                 viewModel.setMicrophoneEnabled(!viewModel.sources.microphoneEnabled)
+            }
+        }
+    }
+
+    private var sourceAccessButtons: some View {
+        HStack(spacing: 8) {
+            if viewModel.shouldShowSystemAudioPermissionRequest {
+                SourceAccessButton(
+                    title: systemAudioAccessTitle,
+                    systemImage: "waveform.badge.magnifyingglass",
+                    isRequesting: viewModel.isRequestingSystemAudioPermission,
+                    isDisabled: !viewModel.canRequestSystemAudioPermission,
+                    action: viewModel.requestSystemAudioPermission
+                )
+            }
+
+            if viewModel.shouldShowMicrophonePermissionRequest {
+                SourceAccessButton(
+                    title: microphoneAccessTitle,
+                    systemImage: "mic.badge.plus",
+                    isRequesting: viewModel.isRequestingMicrophonePermission,
+                    isDisabled: !viewModel.canRequestMicrophonePermission,
+                    action: viewModel.requestMicrophonePermission
+                )
             }
         }
     }
@@ -121,6 +146,26 @@ struct RecorderControls: View {
         return "Start Recording"
     }
 
+    private var systemAudioAccessTitle: String {
+        if viewModel.isRequestingSystemAudioPermission {
+            return "Requesting System"
+        }
+
+        return "System Access"
+    }
+
+    private var microphoneAccessTitle: String {
+        if viewModel.isRequestingMicrophonePermission {
+            return "Requesting Mic"
+        }
+
+        if viewModel.microphonePermissionState == .blocked {
+            return "Mic Settings"
+        }
+
+        return "Mic Access"
+    }
+
     private var microphonePickerHelp: String {
         if viewModel.sources.microphoneEnabled == false {
             return "Turn on microphone recording to choose an input"
@@ -135,6 +180,41 @@ struct RecorderControls: View {
         }
 
         return "Choose microphone input"
+    }
+}
+
+private struct SourceAccessButton: View {
+    let title: String
+    let systemImage: String
+    let isRequesting: Bool
+    let isDisabled: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 14, weight: .semibold))
+
+                Text(title)
+                    .font(.callout.weight(.medium))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+
+                Spacer(minLength: 0)
+
+                if isRequesting {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 34)
+            .padding(.horizontal, 10)
+        }
+        .buttonStyle(.bordered)
+        .disabled(isDisabled)
+        .help(title)
     }
 }
 
