@@ -88,6 +88,35 @@ struct DualTrackRecorderOrchestrationTests {
         #expect(harness.requestedMicrophoneSelections == [selection])
     }
 
+    @Test func requestSystemAudioPermissionStartsAndStopsSystemCapture() async throws {
+        let harness = FakeRecorderHarness(baseURL: temporaryOutputURL())
+        let recorder = DualTrackRecorder(configuration: configuration(), dependencies: harness.dependencies)
+
+        try await recorder.requestSystemAudioPermission()
+
+        #expect(harness.systemAudioCapture.startCount == 1)
+        #expect(harness.systemAudioCapture.stopCount == 1)
+    }
+
+    @Test func requestSystemAudioPermissionStopsCaptureAfterFailure() async {
+        let harness = FakeRecorderHarness(baseURL: temporaryOutputURL())
+        let expectedError = RecorderError.captureFailed("fake system audio request failed")
+        harness.systemAudioCapture.startError = expectedError
+        let recorder = DualTrackRecorder(configuration: configuration(), dependencies: harness.dependencies)
+
+        do {
+            try await recorder.requestSystemAudioPermission()
+            Issue.record("Expected system audio permission request to throw.")
+        } catch let error as RecorderError {
+            #expect(error == expectedError)
+        } catch {
+            Issue.record("Expected RecorderError, got \(error).")
+        }
+
+        #expect(harness.systemAudioCapture.startCount == 1)
+        #expect(harness.systemAudioCapture.stopCount == 1)
+    }
+
     @Test func switchMicrophoneInputReplacesMicrophoneCaptureOnly() async throws {
         let harness = FakeRecorderHarness(baseURL: temporaryOutputURL())
         let replacementCapture = FakeAudioCapture()

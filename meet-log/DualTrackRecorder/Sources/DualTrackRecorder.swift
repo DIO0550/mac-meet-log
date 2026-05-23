@@ -56,6 +56,18 @@ public actor DualTrackRecorder {
         dependencies.microphoneDeviceProvider.deviceChanges()
     }
 
+    public func requestSystemAudioPermission() async throws {
+        let capture = dependencies.systemAudioCaptureFactory { _, _ in }
+
+        do {
+            try await capture.start()
+            capture.stop()
+        } catch {
+            capture.stop()
+            throw normalize(error, fallback: "Could not request system audio access.")
+        }
+    }
+
     public func switchMicrophoneInput(to selection: MicrophoneInputDeviceSelection) async throws {
         let currentState = await session.state
 

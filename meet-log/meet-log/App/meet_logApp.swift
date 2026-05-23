@@ -13,7 +13,7 @@ struct meet_logApp: App {
         WindowGroup {
             AppRootView()
         }
-        .defaultSize(width: 420, height: 580)
+        .defaultSize(width: 420, height: 680)
         .windowResizability(.contentSize)
         .commands {
             AppCommands()

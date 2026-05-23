@@ -16,6 +16,10 @@ final class RecorderViewModel: ObservableObject {
     @Published private(set) var microphoneDevices: [AudioInputDevice] = []
     @Published private(set) var selectedMicrophoneDeviceID: String?
     @Published private(set) var isSwitchingMicrophoneInput = false
+    @Published private(set) var isRequestingSystemAudioPermission = false
+    @Published private(set) var isRequestingMicrophonePermission = false
+    @Published private(set) var systemAudioPermissionState: SourcePermissionState = .unknown
+    @Published private(set) var microphonePermissionState: SourcePermissionState = .unknown
 
     private let recorder: RecorderClient
     private var eventTask: Task<Void, Never>?
@@ -30,6 +34,7 @@ final class RecorderViewModel: ObservableObject {
 
     init(recorder: RecorderClient) {
         self.recorder = recorder
+        refreshMicrophonePermissionState()
         subscribeToRecorderEvents()
         refreshMicrophoneDevices()
     }
@@ -82,6 +87,28 @@ final class RecorderViewModel: ObservableObject {
 
     var canSelectMicrophoneInput: Bool {
         sources.microphoneEnabled && !isPreparing && !isPaused && !isFinalizing && !isSwitchingMicrophoneInput
+    }
+
+    var canRequestSystemAudioPermission: Bool {
+        sources.systemAudioEnabled
+            && canEditSources
+            && !isRequestingSystemAudioPermission
+            && systemAudioPermissionState != .granted
+    }
+
+    var canRequestMicrophonePermission: Bool {
+        sources.microphoneEnabled
+            && canEditSources
+            && !isRequestingMicrophonePermission
+            && microphonePermissionState != .granted
+    }
+
+    var shouldShowSystemAudioPermissionRequest: Bool {
+        sources.systemAudioEnabled && systemAudioPermissionState != .granted
+    }
+
+    var shouldShowMicrophonePermissionRequest: Bool {
+        sources.microphoneEnabled && microphonePermissionState != .granted
     }
 
     var selectedMicrophoneDisplayName: String {
@@ -163,6 +190,54 @@ final class RecorderViewModel: ObservableObject {
         selectedMicrophoneDeviceID = deviceID
     }
 
+    func requestSystemAudioPermission() {
+        guard canRequestSystemAudioPermission else {
+            return
+        }
+
+        Task {
+            isRequestingSystemAudioPermission = true
+            clearTransientPresentation()
+
+            do {
+                try await recorder.requestSystemAudioPermission()
+                systemAudioPermissionState = .granted
+            } catch {
+                systemAudioPermissionState = .blocked
+                presentNonFatal(error: error)
+            }
+
+            isRequestingSystemAudioPermission = false
+        }
+    }
+
+    func requestMicrophonePermission() {
+        guard canRequestMicrophonePermission else {
+            return
+        }
+
+        if microphoneAuthorizationStatus == .denied || microphoneAuthorizationStatus == .restricted {
+            openMicrophoneSettings()
+            refreshMicrophonePermissionState()
+            return
+        }
+
+        Task {
+            isRequestingMicrophonePermission = true
+            clearTransientPresentation()
+
+            do {
+                try await requestMicrophonePermissionIfNeeded()
+                microphonePermissionState = .granted
+            } catch {
+                refreshMicrophonePermissionState()
+                presentNonFatal(error: error)
+            }
+
+            isRequestingMicrophonePermission = false
+        }
+    }
+
     func start() {
         guard canStart else {
             present(error: RecorderError.invalidSources("Choose at least one recording source."))
@@ -179,6 +254,9 @@ final class RecorderViewModel: ObservableObject {
                 recordingBaselineElapsed = .zero
                 recordingBaselineDate = nil
                 try await recorder.start(sources, selectedMicrophoneSelection)
+                if sources.systemAudioEnabled {
+                    systemAudioPermissionState = .granted
+                }
             } catch {
                 present(error: error)
             }
@@ -449,6 +527,11 @@ final class RecorderViewModel: ObservableObject {
             return
         }
 
+        try await requestMicrophonePermissionIfNeeded()
+        microphonePermissionState = .granted
+    }
+
+    private func requestMicrophonePermissionIfNeeded() async throws {
         switch AVCaptureDevice.authorizationStatus(for: .audio) {
         case .authorized:
             return
@@ -461,6 +544,23 @@ final class RecorderViewModel: ObservableObject {
             throw RecorderError.permissionDenied("Microphone access is off.")
         @unknown default:
             throw RecorderError.permissionDenied("Microphone access could not be confirmed.")
+        }
+    }
+
+    private var microphoneAuthorizationStatus: AVAuthorizationStatus {
+        AVCaptureDevice.authorizationStatus(for: .audio)
+    }
+
+    private func refreshMicrophonePermissionState() {
+        switch microphoneAuthorizationStatus {
+        case .authorized:
+            microphonePermissionState = .granted
+        case .notDetermined:
+            microphonePermissionState = .unknown
+        case .denied, .restricted:
+            microphonePermissionState = .blocked
+        @unknown default:
+            microphonePermissionState = .unknown
         }
     }
 
@@ -490,6 +590,7 @@ struct RecorderClient {
     let stop: () async throws -> RecordingResult
     let dismiss: () async throws -> Void
     let switchMicrophoneInput: (MicrophoneInputDeviceSelection) async throws -> Void
+    let requestSystemAudioPermission: () async throws -> Void
 
     init() {
         self.init(recorder: DualTrackRecorder())
@@ -521,6 +622,9 @@ struct RecorderClient {
         switchMicrophoneInput = { selection in
             try await recorder.switchMicrophoneInput(to: selection)
         }
+        requestSystemAudioPermission = {
+            try await recorder.requestSystemAudioPermission()
+        }
     }
 
     init(
@@ -534,7 +638,8 @@ struct RecorderClient {
         resume: @escaping () async throws -> Void,
         stop: @escaping () async throws -> RecordingResult,
         dismiss: @escaping () async throws -> Void,
-        switchMicrophoneInput: @escaping (MicrophoneInputDeviceSelection) async throws -> Void
+        switchMicrophoneInput: @escaping (MicrophoneInputDeviceSelection) async throws -> Void,
+        requestSystemAudioPermission: @escaping () async throws -> Void = {}
     ) {
         self.events = events
         self.microphoneDevices = microphoneDevices
@@ -545,7 +650,14 @@ struct RecorderClient {
         self.stop = stop
         self.dismiss = dismiss
         self.switchMicrophoneInput = switchMicrophoneInput
+        self.requestSystemAudioPermission = requestSystemAudioPermission
     }
+}
+
+enum SourcePermissionState: Equatable {
+    case unknown
+    case granted
+    case blocked
 }
 
 struct RecorderLevelSnapshot: Equatable, Sendable {
@@ -604,9 +716,9 @@ struct RecorderErrorPresentation: Equatable, Identifiable {
             title = "Microphone access is off"
             message = "Allow microphone access in System Settings, then start recording again."
             recoveryAction = .microphoneSettings
-        case .captureFailed:
+        case let .captureFailed(message):
             title = "Audio capture could not start"
-            message = "Check your audio devices and try recording again."
+            self.message = message
             recoveryAction = nil
         case .outputFailed:
             title = "Save location is not available"

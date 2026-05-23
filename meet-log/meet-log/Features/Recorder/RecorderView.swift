@@ -22,7 +22,7 @@ struct RecorderView: View {
     }
 
     var body: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 14) {
             header
             timer
 
@@ -52,8 +52,8 @@ struct RecorderView: View {
                 RecorderControls(viewModel: viewModel)
             }
         }
-        .padding(22)
-        .frame(width: 420, height: 580)
+        .padding(18)
+        .frame(width: 420, height: 680)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -99,7 +99,7 @@ struct RecorderView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
         }
-        .padding(.top, 8)
+        .padding(.top, 4)
     }
 
     private var sourceSummary: String {

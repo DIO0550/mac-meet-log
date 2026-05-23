@@ -25,7 +25,7 @@ struct AppRootView: View {
                     .help("Open Library")
                     .padding(14)
                 }
-                .frame(width: 420, height: 580)
+                .frame(width: 420, height: 680)
             case .library:
                 LibraryView {
                     destination = .recorder
