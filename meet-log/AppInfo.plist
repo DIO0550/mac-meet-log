@@ -24,5 +24,7 @@
 	<string></string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>meet-log records your microphone with system audio so meeting audio can be saved.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>meet-log uses on-device speech recognition to transcribe audio files you choose.</string>
 </dict>
 </plist>
