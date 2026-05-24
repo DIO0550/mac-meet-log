@@ -31,7 +31,7 @@ struct AudioImportItem: Equatable, Identifiable, Sendable {
     }
 
     var durationText: String {
-        duration.libraryDisplayString
+        duration.mediaDurationDisplayString
     }
 
     var byteSizeText: String {
