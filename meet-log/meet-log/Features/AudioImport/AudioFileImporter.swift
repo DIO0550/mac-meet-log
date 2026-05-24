@@ -36,10 +36,6 @@ nonisolated private func importAudioSynchronously(
         }
     }
 
-    guard FileManager.default.fileExists(atPath: url.path) else {
-        throw AudioImportError.fileNotFound
-    }
-
     let byteSize = try fileSize(for: url)
     guard byteSize > 0 else {
         throw AudioImportError.emptyFile
@@ -79,8 +75,25 @@ nonisolated private func fileSize(for url: URL) throws -> Int64 {
         let values = try url.resourceValues(forKeys: [.fileSizeKey])
         return Int64(values.fileSize ?? 0)
     } catch {
+        guard !isMissingFileError(error) else {
+            throw AudioImportError.fileNotFound
+        }
+
         throw AudioImportError.permissionDenied(error.localizedDescription)
     }
+}
+
+nonisolated private func isMissingFileError(_ error: Error) -> Bool {
+    let nsError = error as NSError
+    if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileReadNoSuchFileError {
+        return true
+    }
+
+    if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+        return isMissingFileError(underlyingError)
+    }
+
+    return false
 }
 
 nonisolated private func duration(fromSeconds seconds: Double) -> Duration {
