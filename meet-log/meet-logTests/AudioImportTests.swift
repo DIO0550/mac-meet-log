@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Testing
+import UniformTypeIdentifiers
 @testable import meet_log
 
 struct AudioImportTests {
@@ -33,6 +34,16 @@ struct AudioImportTests {
         await #expect(throws: AudioImportError.unsupportedFormat("")) {
             try await importer.importAudio(from: URL(fileURLWithPath: "/tmp/audio"))
         }
+    }
+
+    @Test func allowedContentTypesStaySpecificAndUnique() {
+        let types = AudioImportAllowedContentTypes.values
+
+        #expect(types.count == Set(types).count)
+        #expect(!types.contains(.audio))
+        #expect(types.contains { $0.preferredFilenameExtension == "mp3" })
+        #expect(types.contains { $0.preferredFilenameExtension == "m4a" })
+        #expect(types.contains { $0.preferredFilenameExtension == "wav" })
     }
 
     @Test func importerAcceptsSupportedExtensionsCaseInsensitively() async throws {
