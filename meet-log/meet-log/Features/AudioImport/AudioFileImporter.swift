@@ -1,4 +1,5 @@
 import AVFoundation
+import Darwin
 import Foundation
 
 protocol AudioFileImporting: Sendable {
@@ -75,12 +76,20 @@ nonisolated private func fileSize(for url: URL) throws -> Int64 {
         let values = try url.resourceValues(forKeys: [.fileSizeKey])
         return Int64(values.fileSize ?? 0)
     } catch {
-        guard !isMissingFileError(error) else {
-            throw AudioImportError.fileNotFound
-        }
-
-        throw AudioImportError.permissionDenied(error.localizedDescription)
+        throw audioImportError(forResourceValueError: error)
     }
+}
+
+nonisolated private func audioImportError(forResourceValueError error: Error) -> AudioImportError {
+    if isMissingFileError(error) {
+        return .fileNotFound
+    }
+
+    if isPermissionError(error) {
+        return .permissionDenied(error.localizedDescription)
+    }
+
+    return .unreadable(error.localizedDescription)
 }
 
 nonisolated private func isMissingFileError(_ error: Error) -> Bool {
@@ -89,8 +98,29 @@ nonisolated private func isMissingFileError(_ error: Error) -> Bool {
         return true
     }
 
+    if nsError.domain == NSPOSIXErrorDomain, nsError.code == Int(ENOENT) {
+        return true
+    }
+
     if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
         return isMissingFileError(underlyingError)
+    }
+
+    return false
+}
+
+nonisolated private func isPermissionError(_ error: Error) -> Bool {
+    let nsError = error as NSError
+    if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileReadNoPermissionError {
+        return true
+    }
+
+    if nsError.domain == NSPOSIXErrorDomain, [EACCES, EPERM].contains(Int32(nsError.code)) {
+        return true
+    }
+
+    if let underlyingError = nsError.userInfo[NSUnderlyingErrorKey] as? Error {
+        return isPermissionError(underlyingError)
     }
 
     return false
