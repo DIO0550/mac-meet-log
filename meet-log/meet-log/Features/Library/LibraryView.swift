@@ -7,16 +7,21 @@ struct LibraryView: View {
 
     @MainActor
     init(recorderAction: @escaping () -> Void) {
-        self.init(viewModel: LibraryViewModel(), recorderAction: recorderAction)
+        self.init(
+            viewModel: LibraryViewModel(),
+            audioImportViewModel: { AudioImportViewModel() },
+            recorderAction: recorderAction
+        )
     }
 
     @MainActor
     init(
         viewModel: @autoclosure @escaping () -> LibraryViewModel,
+        audioImportViewModel: @escaping @MainActor () -> AudioImportViewModel = { AudioImportViewModel() },
         recorderAction: @escaping () -> Void
     ) {
         _viewModel = StateObject(wrappedValue: viewModel())
-        _audioImportViewModel = StateObject(wrappedValue: AudioImportViewModel())
+        _audioImportViewModel = StateObject(wrappedValue: audioImportViewModel())
         self.recorderAction = recorderAction
     }
 
