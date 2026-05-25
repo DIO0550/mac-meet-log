@@ -2,19 +2,26 @@ import SwiftUI
 
 struct LibraryView: View {
     @StateObject private var viewModel: LibraryViewModel
+    @StateObject private var audioImportViewModel: AudioImportViewModel
     let recorderAction: () -> Void
 
     @MainActor
     init(recorderAction: @escaping () -> Void) {
-        self.init(viewModel: LibraryViewModel(), recorderAction: recorderAction)
+        self.init(
+            viewModel: LibraryViewModel(),
+            audioImportViewModel: { AudioImportViewModel() },
+            recorderAction: recorderAction
+        )
     }
 
     @MainActor
     init(
         viewModel: @autoclosure @escaping () -> LibraryViewModel,
+        audioImportViewModel: @escaping @MainActor () -> AudioImportViewModel = { AudioImportViewModel() },
         recorderAction: @escaping () -> Void
     ) {
         _viewModel = StateObject(wrappedValue: viewModel())
+        _audioImportViewModel = StateObject(wrappedValue: audioImportViewModel())
         self.recorderAction = recorderAction
     }
 
@@ -30,36 +37,93 @@ struct LibraryView: View {
         .task {
             await viewModel.load()
         }
+        .fileImporter(
+            isPresented: $audioImportViewModel.isImporterPresented,
+            allowedContentTypes: AudioImportAllowedContentTypes.values,
+            allowsMultipleSelection: false
+        ) { result in
+            audioImportViewModel.handleImporterResult(firstSelectedURL(from: result))
+        }
         .onDisappear {
             viewModel.stopPlayback()
         }
     }
 
     private var header: some View {
-        HStack(spacing: 12) {
-            Button(action: recorderAction) {
-                Label("Recorder", systemImage: "record.circle")
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Button(action: recorderAction) {
+                    Label("Recorder", systemImage: "record.circle")
+                }
+                .buttonStyle(.bordered)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Library")
+                        .font(.title3.weight(.semibold))
+
+                    Text("Saved mixdowns from ~/Music/meet-log")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                Button(action: audioImportViewModel.presentImporter) {
+                    Label("Import Audio", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(audioImportViewModel.state == .importing)
+
+                Button(action: viewModel.refresh) {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.bordered)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Library")
-                    .font(.title3.weight(.semibold))
-
-                Text("Saved mixdowns from ~/Music/meet-log")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 0)
-
-            Button(action: viewModel.refresh) {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.bordered)
+            audioImportStatus
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 16)
+    }
+
+    @ViewBuilder
+    private var audioImportStatus: some View {
+        switch audioImportViewModel.state {
+        case .idle:
+            EmptyView()
+        case .importing:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Importing audio...")
+                    .font(.caption.weight(.medium))
+            }
+            .foregroundStyle(.secondary)
+        case let .imported(item):
+            Label(
+                "\(item.fileName) is ready for transcription · \(item.durationText) · \(item.byteSizeText)",
+                systemImage: "checkmark.circle.fill"
+            )
+            .font(.caption.weight(.medium))
+            .foregroundStyle(.green)
+            .lineLimit(1)
+            .truncationMode(.middle)
+        case let .failed(error):
+            Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.red)
+                .lineLimit(2)
+        }
+    }
+
+    private func firstSelectedURL(from result: Result<[URL], Error>) -> Result<URL, Error> {
+        result.flatMap { urls in
+            guard let url = urls.first else {
+                return .failure(CocoaError(.userCancelled))
+            }
+
+            return .success(url)
+        }
     }
 
     @ViewBuilder
