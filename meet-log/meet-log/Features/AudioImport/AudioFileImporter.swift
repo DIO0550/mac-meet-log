@@ -74,8 +74,16 @@ nonisolated private func importAudioSynchronously(
 nonisolated private func fileSize(for url: URL) throws -> Int64 {
     do {
         let values = try url.resourceValues(forKeys: [.fileSizeKey])
-        return Int64(values.fileSize ?? 0)
+        guard let fileSize = values.fileSize else {
+            throw AudioImportError.unreadable("File size is unavailable.")
+        }
+
+        return Int64(fileSize)
     } catch {
+        if let error = error as? AudioImportError {
+            throw error
+        }
+
         throw audioImportError(forResourceValueError: error)
     }
 }

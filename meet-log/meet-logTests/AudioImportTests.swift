@@ -74,6 +74,18 @@ struct AudioImportTests {
         }
     }
 
+    @Test func importerClassifiesUnavailableFileSizeAsUnreadable() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let unknownSizeURL = directoryURL.appendingPathComponent("unknown-size.wav", isDirectory: true)
+        try FileManager.default.createDirectory(at: unknownSizeURL, withIntermediateDirectories: true)
+
+        let importer = AVAudioFileImporter()
+
+        await #expect(throws: AudioImportError.unreadable("File size is unavailable.")) {
+            try await importer.importAudio(from: unknownSizeURL)
+        }
+    }
+
     @Test func importerReadsGeneratedWavMetadata() async throws {
         let directoryURL = try makeTemporaryDirectory()
         let audioURL = directoryURL.appendingPathComponent("fixture.WAV")
