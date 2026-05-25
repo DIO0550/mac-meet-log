@@ -30,7 +30,7 @@ final class AudioImportViewModel: ObservableObject {
         case let .success(url):
             importAudio(from: url)
         case let .failure(error):
-            if (error as NSError).code == NSUserCancelledError {
+            if let cocoaError = error as? CocoaError, cocoaError.code == .userCancelled {
                 state = .idle
                 return
             }
