@@ -13,7 +13,7 @@ struct LegacySpeechTranscriptionService: AudioTranscriptionService {
         self.recognizerFactory = recognizerFactory
     }
 
-    func transcribe(
+    nonisolated func transcribe(
         audioURL: URL,
         locale: Locale = Locale(identifier: "ja-JP")
     ) -> AsyncThrowingStream<TranscriptionEvent, Error> {
@@ -35,7 +35,7 @@ struct LegacySpeechTranscriptionService: AudioTranscriptionService {
     }
 }
 
-final class LegacySpeechTranscriptionCoordinator: @unchecked Sendable {
+nonisolated final class LegacySpeechTranscriptionCoordinator: @unchecked Sendable {
     private let audioURL: URL
     private let locale: Locale
     private let authorizationProvider: LegacySpeechAuthorizationProviding
@@ -44,7 +44,7 @@ final class LegacySpeechTranscriptionCoordinator: @unchecked Sendable {
     private let lock = NSLock()
     private var task: LegacySpeechRecognitionTasking?
 
-    init(
+    nonisolated init(
         audioURL: URL,
         locale: Locale,
         authorizationProvider: LegacySpeechAuthorizationProviding,
@@ -58,7 +58,7 @@ final class LegacySpeechTranscriptionCoordinator: @unchecked Sendable {
         self.continuation = continuation
     }
 
-    func start() {
+    nonisolated func start() {
         Task {
             do {
                 try await authorize()
@@ -69,7 +69,7 @@ final class LegacySpeechTranscriptionCoordinator: @unchecked Sendable {
         }
     }
 
-    func cancel() {
+    nonisolated func cancel() {
         lock.lock()
         let task = task
         self.task = nil
@@ -78,7 +78,7 @@ final class LegacySpeechTranscriptionCoordinator: @unchecked Sendable {
         task?.cancel()
     }
 
-    private func authorize() async throws {
+    nonisolated private func authorize() async throws {
         switch await authorizationProvider.authorizationStatusAfterRequest() {
         case .authorized:
             return
@@ -91,7 +91,7 @@ final class LegacySpeechTranscriptionCoordinator: @unchecked Sendable {
         }
     }
 
-    private func startRecognition() throws {
+    nonisolated private func startRecognition() throws {
         let localeIdentifier = locale.identifier
         guard let recognizer = recognizerFactory.recognizer(locale: locale) else {
             throw TranscriptionError.recognizerUnavailable(localeIdentifier: localeIdentifier)
@@ -122,7 +122,7 @@ final class LegacySpeechTranscriptionCoordinator: @unchecked Sendable {
         lock.unlock()
     }
 
-    private func handle(_ callback: LegacySpeechRecognitionCallback) {
+    nonisolated private func handle(_ callback: LegacySpeechRecognitionCallback) {
         if let error = callback.error {
             continuation.finish(throwing: TranscriptionError.recognitionFailed(error.localizedDescription))
             return
@@ -164,13 +164,16 @@ enum LegacySpeechAuthorizationStatus: Equatable, Sendable {
 }
 
 protocol LegacySpeechAuthorizationProviding: Sendable {
-    func authorizationStatusAfterRequest() async -> LegacySpeechAuthorizationStatus
+    nonisolated func authorizationStatusAfterRequest() async -> LegacySpeechAuthorizationStatus
 }
 
 struct SystemSpeechAuthorizationProvider: LegacySpeechAuthorizationProviding {
-    func authorizationStatusAfterRequest() async -> LegacySpeechAuthorizationStatus {
+    nonisolated func authorizationStatusAfterRequest() async -> LegacySpeechAuthorizationStatus {
         let currentStatus = Self.map(SFSpeechRecognizer.authorizationStatus())
-        guard currentStatus == .notDetermined else {
+        switch currentStatus {
+        case .notDetermined:
+            break
+        case .authorized, .denied, .restricted, .unavailable:
             return currentStatus
         }
 
@@ -181,7 +184,9 @@ struct SystemSpeechAuthorizationProvider: LegacySpeechAuthorizationProviding {
         }
     }
 
-    private static func map(_ status: SFSpeechRecognizerAuthorizationStatus) -> LegacySpeechAuthorizationStatus {
+    nonisolated private static func map(
+        _ status: SFSpeechRecognizerAuthorizationStatus
+    ) -> LegacySpeechAuthorizationStatus {
         switch status {
         case .authorized:
             return .authorized
@@ -218,14 +223,14 @@ struct LegacySpeechRecognitionCallback {
 }
 
 protocol LegacySpeechRecognizerMaking: Sendable {
-    func recognizer(locale: Locale) -> LegacySpeechRecognizing?
+    nonisolated func recognizer(locale: Locale) -> LegacySpeechRecognizing?
 }
 
 protocol LegacySpeechRecognizing: Sendable {
-    var isAvailable: Bool { get }
-    var supportsOnDeviceRecognition: Bool { get }
+    nonisolated var isAvailable: Bool { get }
+    nonisolated var supportsOnDeviceRecognition: Bool { get }
 
-    func recognitionTask(
+    nonisolated func recognitionTask(
         audioURL: URL,
         configuration: LegacySpeechRecognitionRequestConfiguration,
         resultHandler: @escaping (LegacySpeechRecognitionCallback) -> Void
@@ -233,7 +238,7 @@ protocol LegacySpeechRecognizing: Sendable {
 }
 
 protocol LegacySpeechRecognitionTasking: Sendable {
-    func cancel()
+    nonisolated func cancel()
 }
 
 struct SystemSpeechRecognizerFactory: LegacySpeechRecognizerMaking {

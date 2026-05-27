@@ -1,14 +1,14 @@
 import Foundation
 
 protocol AudioTranscriptionService: Sendable {
-    func transcribe(
+    nonisolated func transcribe(
         audioURL: URL,
         locale: Locale
     ) -> AsyncThrowingStream<TranscriptionEvent, Error>
 }
 
 extension AudioTranscriptionService {
-    func finalTranscript(
+    nonisolated func finalTranscript(
         audioURL: URL,
         locale: Locale = Locale(identifier: "ja-JP")
     ) async throws -> TranscriptResult {
