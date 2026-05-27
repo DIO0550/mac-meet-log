@@ -9,7 +9,6 @@ enum TranscriptionError: Error, Equatable, LocalizedError, Sendable {
     case onDeviceRecognitionUnavailable(localeIdentifier: String)
     case recognitionFailed(String)
     case emptyResult
-    case cancelled
 
     var errorDescription: String? {
         switch self {
@@ -29,8 +28,6 @@ enum TranscriptionError: Error, Equatable, LocalizedError, Sendable {
             return "Speech recognition failed: \(message)"
         case .emptyResult:
             return "Speech recognition finished without transcript text."
-        case .cancelled:
-            return "Speech recognition was cancelled."
         }
     }
 }

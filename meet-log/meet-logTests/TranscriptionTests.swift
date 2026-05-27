@@ -12,8 +12,7 @@ struct TranscriptionTests {
             .recognizerNotAvailable(localeIdentifier: "ja-JP"),
             .onDeviceRecognitionUnavailable(localeIdentifier: "ja-JP"),
             .recognitionFailed("Speech failed"),
-            .emptyResult,
-            .cancelled
+            .emptyResult
         ]
 
         for error in errors {
