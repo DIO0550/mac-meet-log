@@ -17,7 +17,7 @@ struct LegacySpeechTranscriptionService: AudioTranscriptionService {
         audioURL: URL,
         locale: Locale = Locale(identifier: "ja-JP")
     ) -> AsyncThrowingStream<TranscriptionEvent, Error> {
-        AsyncThrowingStream { continuation in
+        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(10)) { continuation in
             let coordinator = LegacySpeechTranscriptionCoordinator(
                 audioURL: audioURL,
                 locale: locale,
