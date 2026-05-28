@@ -4,8 +4,8 @@ enum TranscriptionError: Error, Equatable, LocalizedError, Sendable {
     case authorizationDenied
     case authorizationRestricted
     case authorizationUnavailable
-    case recognizerUnavailable(localeIdentifier: String)
-    case recognizerNotAvailable(localeIdentifier: String)
+    case recognizerUnsupportedForLocale(localeIdentifier: String)
+    case recognizerTemporarilyUnavailable(localeIdentifier: String)
     case onDeviceRecognitionUnavailable(localeIdentifier: String)
     case recognitionFailed(String)
     case emptyResult
@@ -18,10 +18,10 @@ enum TranscriptionError: Error, Equatable, LocalizedError, Sendable {
             return "Speech recognition is restricted on this Mac."
         case .authorizationUnavailable:
             return "Speech recognition permission could not be confirmed."
-        case let .recognizerUnavailable(localeIdentifier):
-            return "Speech recognition is unavailable for \(localeIdentifier)."
-        case let .recognizerNotAvailable(localeIdentifier):
-            return "Speech recognition for \(localeIdentifier) is not currently available."
+        case let .recognizerUnsupportedForLocale(localeIdentifier):
+            return "Speech recognition is not supported for \(localeIdentifier) on this Mac."
+        case let .recognizerTemporarilyUnavailable(localeIdentifier):
+            return "Speech recognition for \(localeIdentifier) is temporarily unavailable."
         case let .onDeviceRecognitionUnavailable(localeIdentifier):
             return "On-device speech recognition is unavailable for \(localeIdentifier)."
         case let .recognitionFailed(message):

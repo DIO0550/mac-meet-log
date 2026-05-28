@@ -94,11 +94,11 @@ nonisolated final class LegacySpeechTranscriptionCoordinator: @unchecked Sendabl
     nonisolated private func startRecognition() throws {
         let localeIdentifier = locale.identifier
         guard let recognizer = recognizerFactory.recognizer(locale: locale) else {
-            throw TranscriptionError.recognizerUnavailable(localeIdentifier: localeIdentifier)
+            throw TranscriptionError.recognizerUnsupportedForLocale(localeIdentifier: localeIdentifier)
         }
 
         guard recognizer.isAvailable else {
-            throw TranscriptionError.recognizerNotAvailable(localeIdentifier: localeIdentifier)
+            throw TranscriptionError.recognizerTemporarilyUnavailable(localeIdentifier: localeIdentifier)
         }
 
         guard recognizer.supportsOnDeviceRecognition else {

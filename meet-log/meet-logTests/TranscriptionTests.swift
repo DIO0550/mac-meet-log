@@ -8,8 +8,8 @@ struct TranscriptionTests {
             .authorizationDenied,
             .authorizationRestricted,
             .authorizationUnavailable,
-            .recognizerUnavailable(localeIdentifier: "ja-JP"),
-            .recognizerNotAvailable(localeIdentifier: "ja-JP"),
+            .recognizerUnsupportedForLocale(localeIdentifier: "ja-JP"),
+            .recognizerTemporarilyUnavailable(localeIdentifier: "ja-JP"),
             .onDeviceRecognitionUnavailable(localeIdentifier: "ja-JP"),
             .recognitionFailed("Speech failed"),
             .emptyResult
@@ -53,7 +53,7 @@ struct TranscriptionTests {
 
         await expectFailure(
             from: service.transcribe(audioURL: sampleAudioURL, locale: japaneseLocale),
-            expectedError: .recognizerUnavailable(localeIdentifier: "ja-JP")
+            expectedError: .recognizerUnsupportedForLocale(localeIdentifier: "ja-JP")
         )
     }
 
@@ -63,7 +63,7 @@ struct TranscriptionTests {
 
         await expectFailure(
             from: service.transcribe(audioURL: sampleAudioURL, locale: japaneseLocale),
-            expectedError: .recognizerNotAvailable(localeIdentifier: "ja-JP")
+            expectedError: .recognizerTemporarilyUnavailable(localeIdentifier: "ja-JP")
         )
     }
 
