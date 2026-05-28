@@ -12,7 +12,8 @@ struct TranscriptionTests {
             .recognizerTemporarilyUnavailable(localeIdentifier: "ja-JP"),
             .onDeviceRecognitionUnavailable(localeIdentifier: "ja-JP"),
             .recognitionFailed("Speech failed"),
-            .emptyResult
+            .emptyResult,
+            .transcriptionIncomplete
         ]
 
         for error in errors {
@@ -192,6 +193,14 @@ struct TranscriptionTests {
         #expect(result.sourceURL == sampleAudioURL)
     }
 
+    @Test func finalTranscriptFailsWithIncompleteWhenStreamEndsWithoutCompletedEvent() async {
+        let service = PartialOnlyTranscriptionService()
+
+        await #expect(throws: TranscriptionError.transcriptionIncomplete) {
+            try await service.finalTranscript(audioURL: sampleAudioURL, locale: japaneseLocale)
+        }
+    }
+
     private func expectTranscriptionFailure(
         authorizationStatus: LegacySpeechAuthorizationStatus,
         expectedError: TranscriptionError
@@ -349,5 +358,17 @@ private enum TestRecognitionError: Error, LocalizedError {
 
     var errorDescription: String? {
         "boom"
+    }
+}
+
+private struct PartialOnlyTranscriptionService: AudioTranscriptionService {
+    func transcribe(
+        audioURL: URL,
+        locale: Locale
+    ) -> AsyncThrowingStream<TranscriptionEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(.partial("途中"))
+            continuation.finish()
+        }
     }
 }

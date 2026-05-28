@@ -21,7 +21,7 @@ extension AudioTranscriptionService {
         }
 
         guard let finalResult else {
-            throw TranscriptionError.emptyResult
+            throw TranscriptionError.transcriptionIncomplete
         }
 
         return finalResult
