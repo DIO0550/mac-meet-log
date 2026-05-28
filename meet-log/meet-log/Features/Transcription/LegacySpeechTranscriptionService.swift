@@ -282,7 +282,7 @@ final class SystemSpeechRecognizer: LegacySpeechRecognizing, @unchecked Sendable
 
         let task = recognizer.recognitionTask(with: request) { result, error in
             if let result {
-                resultHandler(Self.callback(from: result, error: error))
+                resultHandler(Self.callback(from: result))
                 return
             }
 
@@ -294,10 +294,7 @@ final class SystemSpeechRecognizer: LegacySpeechRecognizing, @unchecked Sendable
         return SystemSpeechRecognitionTask(task: task)
     }
 
-    private static func callback(
-        from result: SFSpeechRecognitionResult,
-        error: Error?
-    ) -> LegacySpeechRecognitionCallback {
+    private static func callback(from result: SFSpeechRecognitionResult) -> LegacySpeechRecognitionCallback {
         LegacySpeechRecognitionCallback(
             text: result.bestTranscription.formattedString,
             segments: result.bestTranscription.segments.map { segment in
@@ -308,7 +305,7 @@ final class SystemSpeechRecognizer: LegacySpeechRecognizing, @unchecked Sendable
                 )
             },
             isFinal: result.isFinal,
-            error: error
+            error: nil
         )
     }
 }
