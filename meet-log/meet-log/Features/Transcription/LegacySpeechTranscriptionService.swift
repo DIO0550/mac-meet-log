@@ -275,10 +275,7 @@ final class SystemSpeechRecognizer: LegacySpeechRecognizing, @unchecked Sendable
         request.requiresOnDeviceRecognition = configuration.requiresOnDeviceRecognition
         request.shouldReportPartialResults = configuration.shouldReportPartialResults
         request.taskHint = .dictation
-
-        if #available(macOS 13.0, *) {
-            request.addsPunctuation = configuration.addsPunctuation
-        }
+        request.addsPunctuation = configuration.addsPunctuation
 
         let task = recognizer.recognitionTask(with: request) { result, error in
             if let result {
