@@ -25,6 +25,13 @@ nonisolated struct AudioProcessingJob: Sendable {
                 var transcript: TranscriptResult?
 
                 do {
+                    let didStartAccessing = audioURL.startAccessingSecurityScopedResource()
+                    defer {
+                        if didStartAccessing {
+                            audioURL.stopAccessingSecurityScopedResource()
+                        }
+                    }
+
                     continuation.yield(.loading)
                     try Task.checkCancellation()
 

@@ -209,6 +209,7 @@ struct AudioProcessingTests {
         )
 
         viewModel.process(audioURL: sampleURL)
+        try await waitUntil { importer.urls == [sampleURL] }
         viewModel.process(audioURL: alternateURL)
         try await waitUntil { !viewModel.isProcessing }
 

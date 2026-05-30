@@ -10,6 +10,7 @@ final class AudioProcessingViewModel: ObservableObject {
     private let job: AudioProcessingJob
     private let locale: Locale
     private var processingTask: Task<Void, Never>?
+    private var processingRunID: UUID?
     private var lastSelectedURL: URL?
 
     init(
@@ -83,14 +84,24 @@ final class AudioProcessingViewModel: ObservableObject {
 
     func process(audioURL: URL) {
         processingTask?.cancel()
+        let runID = UUID()
+        processingRunID = runID
         lastSelectedURL = audioURL
         state = .loading
 
         processingTask = Task {
             for await nextState in job.run(audioURL: audioURL, locale: locale) {
+                guard processingRunID == runID else {
+                    break
+                }
+
                 state = nextState
             }
-            processingTask = nil
+
+            if processingRunID == runID {
+                processingTask = nil
+                processingRunID = nil
+            }
         }
     }
 
@@ -98,6 +109,7 @@ final class AudioProcessingViewModel: ObservableObject {
         let item = state.importedItem
         processingTask?.cancel()
         processingTask = nil
+        processingRunID = nil
         state = .cancelled(item)
     }
 
@@ -112,6 +124,7 @@ final class AudioProcessingViewModel: ObservableObject {
     func clear() {
         processingTask?.cancel()
         processingTask = nil
+        processingRunID = nil
         state = .idle
     }
 
