@@ -147,10 +147,33 @@ Selection order:
 - #5 should implement `LegacySpeechTranscriptionService` first because it can be exercised before macOS 26-only code lands.
 - #6 should add `SpeechAnalyzerTranscriptionService` in a narrow, availability-gated file.
 - #7 should add `FoundationModelsSummaryService` in a narrow, availability-gated file and include chunked summary strategy.
-- #8 should compose the selected transcription and summary routes into a cancellable job.
-- #9 should surface route, progress, and unsupported reasons in UI without exposing framework names as primary user copy.
-- #10 should test route selection with fakes instead of requiring Apple Speech or Foundation Models at test time.
-- #11 should convert this implementation note into user-facing requirements and developer documentation.
+- #8 composes the selected import, transcription, and summary routes in `Features/AudioProcessing/AudioProcessingJob.swift`.
+- #9 surfaces file selection, drag-and-drop, progress, transcript output, summary output, unsupported summary reasons, failure, retry, and cancellation in `Features/AudioProcessing/AudioProcessingView.swift`.
+- #10 covers the pipeline and view model with fakes in `meet-logTests/AudioProcessingTests.swift`, so tests do not require real Apple Speech or Foundation Models availability.
+- #11 converts this implementation note into the user-facing requirements now listed in `README.md`.
+
+## Pipeline Behavior
+
+The pipeline states are:
+
+```swift
+idle
+loading
+transcribing(AudioImportItem, partialTranscript: String?)
+summarizing(AudioImportItem, TranscriptResult)
+completed(AudioImportItem, TranscriptResult, TranscriptSummaryResult)
+failed(AudioImportItem?, AudioProcessingError, transcript: TranscriptResult?)
+cancelled(AudioImportItem?)
+```
+
+Implementation-specific decisions:
+
+- Cancellation is exposed as a terminal state in the view model.
+- Partial transcript text is shown while transcription is running.
+- Completed transcript text is preserved before summary starts.
+- Summary unavailable is treated as a completed pipeline with transcript preserved.
+- Summary failure is treated as a failed pipeline with transcript preserved.
+- Import and transcription failures do not fabricate transcript output.
 
 ## References
 
