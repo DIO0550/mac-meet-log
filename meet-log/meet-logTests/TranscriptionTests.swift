@@ -11,6 +11,8 @@ struct TranscriptionTests {
             .recognizerUnsupportedForLocale(localeIdentifier: "ja-JP"),
             .recognizerTemporarilyUnavailable(localeIdentifier: "ja-JP"),
             .onDeviceRecognitionUnavailable(localeIdentifier: "ja-JP"),
+            .speechAnalyzerUnavailable,
+            .speechAnalyzerAssetsUnavailable(localeIdentifier: "ja-JP"),
             .recognitionFailed("Speech failed"),
             .emptyResult,
             .transcriptionIncomplete

@@ -7,6 +7,8 @@ enum TranscriptionError: Error, Equatable, LocalizedError, Sendable {
     case recognizerUnsupportedForLocale(localeIdentifier: String)
     case recognizerTemporarilyUnavailable(localeIdentifier: String)
     case onDeviceRecognitionUnavailable(localeIdentifier: String)
+    case speechAnalyzerUnavailable
+    case speechAnalyzerAssetsUnavailable(localeIdentifier: String)
     case recognitionFailed(String)
     case emptyResult
     case transcriptionIncomplete
@@ -25,6 +27,10 @@ enum TranscriptionError: Error, Equatable, LocalizedError, Sendable {
             return "Speech recognition for \(localeIdentifier) is temporarily unavailable."
         case let .onDeviceRecognitionUnavailable(localeIdentifier):
             return "On-device speech recognition is unavailable for \(localeIdentifier)."
+        case .speechAnalyzerUnavailable:
+            return "The newer on-device speech analyzer is unavailable on this Mac."
+        case let .speechAnalyzerAssetsUnavailable(localeIdentifier):
+            return "On-device speech analyzer assets are unavailable for \(localeIdentifier)."
         case let .recognitionFailed(message):
             return "Speech recognition failed: \(message)"
         case .emptyResult:
