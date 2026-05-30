@@ -238,6 +238,7 @@ private struct LibraryDetailPane: View {
                 VStack(alignment: .leading, spacing: 22) {
                     titleBlock(item)
                     actions
+                    summarySection(item)
                     fileStatus(item)
                 }
                 .padding(28)
@@ -301,6 +302,12 @@ private struct LibraryDetailPane: View {
             }
             .buttonStyle(.bordered)
 
+            Button(action: viewModel.generateSummaryForSelectedItem) {
+                Label("Summarize", systemImage: "text.badge.checkmark")
+            }
+            .buttonStyle(.bordered)
+            .disabled(viewModel.isSummaryBusy || viewModel.selectedItem?.hasMissingFiles == true)
+
             if case let .failed(message) = viewModel.playbackState {
                 Text(message)
                     .font(.caption)
@@ -310,6 +317,49 @@ private struct LibraryDetailPane: View {
 
             Spacer(minLength: 0)
         }
+    }
+
+    @ViewBuilder
+    private func summarySection(_ item: RecordingLibraryItem) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Summary")
+                    .font(.headline)
+
+                Spacer(minLength: 0)
+
+                if viewModel.isSummaryBusy {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
+            switch viewModel.summaryState {
+            case .idle:
+                SummaryMessageRow(
+                    systemImage: item.hasMissingFiles ? "exclamationmark.triangle" : "text.badge.plus",
+                    message: item.hasMissingFiles ? "Mixdown file is missing." : "No summary saved yet."
+                )
+            case .loadingSaved:
+                SummaryMessageRow(systemImage: "clock", message: "Loading saved summary...")
+            case .transcribing:
+                SummaryMessageRow(systemImage: "waveform", message: "Transcribing mixdown...")
+            case .summarizing:
+                SummaryMessageRow(systemImage: "text.magnifyingglass", message: "Generating summary...")
+            case let .summarized(summary):
+                MeetingSummaryView(summary: summary)
+            case let .unavailable(message):
+                SummaryMessageRow(systemImage: "exclamationmark.circle", message: message)
+            case let .failed(message):
+                SummaryMessageRow(systemImage: "xmark.circle", message: message)
+            }
+        }
+        .padding(16)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
+        )
     }
 
     private func fileStatus(_ item: RecordingLibraryItem) -> some View {
@@ -345,6 +395,82 @@ private struct LibraryDetailPane: View {
                     .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
             )
         }
+    }
+}
+
+private struct MeetingSummaryView: View {
+    let summary: MeetingSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(summary.summary)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if !summary.topics.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Topics")
+                        .font(.subheadline.weight(.semibold))
+
+                    ForEach(summary.topics) { topic in
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(topic.title)
+                                .font(.callout.weight(.medium))
+
+                            if let detail = topic.detail {
+                                Text(detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !summary.actionItems.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Action Items")
+                        .font(.subheadline.weight(.semibold))
+
+                    ForEach(summary.actionItems) { actionItem in
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "checkmark.circle")
+                                .foregroundStyle(.green)
+                                .frame(width: 18)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(actionItem.title)
+                                    .font(.callout.weight(.medium))
+
+                                HStack(spacing: 8) {
+                                    if let owner = actionItem.owner {
+                                        Label(owner, systemImage: "person")
+                                    }
+
+                                    if let dueDateText = actionItem.dueDateText {
+                                        Label(dueDateText, systemImage: "calendar")
+                                    }
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct SummaryMessageRow: View {
+    let systemImage: String
+    let message: String
+
+    var body: some View {
+        Label(message, systemImage: systemImage)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
