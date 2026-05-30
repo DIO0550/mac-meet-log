@@ -85,6 +85,108 @@ struct RecordingLibraryTests {
         #expect(viewModel.selectedItem == older)
     }
 
+    @MainActor
+    @Test func viewModelLoadsSavedSummaryForSelectedItem() async throws {
+        let item = makeItem(id: "2026-05-19_10-30-00")
+        let summary = makeSummary()
+        let summaryStore = FakeMeetingSummaryStore(summary: summary)
+        let viewModel = LibraryViewModel(
+            store: FakeRecordingLibraryStore(items: [item]),
+            transcriptionService: FakeAudioTranscriptionService(result: .success(makeTranscript())),
+            summaryService: FakeTranscriptSummaryService(result: .summarized(summary)),
+            summaryStore: summaryStore
+        )
+
+        await viewModel.load()
+        try await waitUntil { viewModel.summaryState == .summarized(summary) }
+
+        #expect(viewModel.summaryState == .summarized(summary))
+    }
+
+    @MainActor
+    @Test func viewModelGeneratesSummaryAndSavesSidecar() async throws {
+        let item = makeItem(id: "2026-05-19_10-30-00")
+        let summary = makeSummary()
+        let summaryStore = FakeMeetingSummaryStore(summary: nil)
+        let viewModel = LibraryViewModel(
+            store: FakeRecordingLibraryStore(items: [item]),
+            transcriptionService: FakeAudioTranscriptionService(result: .success(makeTranscript())),
+            summaryService: FakeTranscriptSummaryService(result: .summarized(summary)),
+            summaryStore: summaryStore
+        )
+
+        await viewModel.load()
+        viewModel.generateSummaryForSelectedItem()
+        try await waitUntil { viewModel.summaryState == .summarized(summary) }
+
+        #expect(viewModel.summaryState == .summarized(summary))
+        #expect(summaryStore.savedSummary == summary)
+        #expect(summaryStore.savedItem == item)
+    }
+
+    @MainActor
+    @Test func viewModelMapsTranscriptionFailureToSummaryFailure() async throws {
+        let item = makeItem(id: "2026-05-19_10-30-00")
+        let viewModel = LibraryViewModel(
+            store: FakeRecordingLibraryStore(items: [item]),
+            transcriptionService: FakeAudioTranscriptionService(result: .failure(TranscriptionError.emptyResult)),
+            summaryService: FakeTranscriptSummaryService(result: .summarized(makeSummary())),
+            summaryStore: FakeMeetingSummaryStore(summary: nil)
+        )
+
+        await viewModel.load()
+        viewModel.generateSummaryForSelectedItem()
+        try await waitUntil {
+            if case .failed = viewModel.summaryState {
+                return true
+            }
+
+            return false
+        }
+
+        #expect(viewModel.summaryState == .failed(TranscriptionError.emptyResult.localizedDescription))
+    }
+
+    @MainActor
+    @Test func viewModelMapsSummaryUnavailableAndFailedResults() async throws {
+        let item = makeItem(id: "2026-05-19_10-30-00")
+        let unavailableViewModel = LibraryViewModel(
+            store: FakeRecordingLibraryStore(items: [item]),
+            transcriptionService: FakeAudioTranscriptionService(result: .success(makeTranscript())),
+            summaryService: FakeTranscriptSummaryService(result: .unavailable(.modelNotReady)),
+            summaryStore: FakeMeetingSummaryStore(summary: nil)
+        )
+        let failedViewModel = LibraryViewModel(
+            store: FakeRecordingLibraryStore(items: [item]),
+            transcriptionService: FakeAudioTranscriptionService(result: .success(makeTranscript())),
+            summaryService: FakeTranscriptSummaryService(result: .failed(.invalidStructuredOutput)),
+            summaryStore: FakeMeetingSummaryStore(summary: nil)
+        )
+
+        await unavailableViewModel.load()
+        unavailableViewModel.generateSummaryForSelectedItem()
+        try await waitUntil {
+            if case .unavailable = unavailableViewModel.summaryState {
+                return true
+            }
+
+            return false
+        }
+
+        await failedViewModel.load()
+        failedViewModel.generateSummaryForSelectedItem()
+        try await waitUntil {
+            if case .failed = failedViewModel.summaryState {
+                return true
+            }
+
+            return false
+        }
+
+        #expect(unavailableViewModel.summaryState == .unavailable(SummaryUnavailableReason.modelNotReady.localizedDescription))
+        #expect(failedViewModel.summaryState == .failed(SummaryError.invalidStructuredOutput.localizedDescription))
+    }
+
     private func makeTemporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("RecordingLibraryTests", isDirectory: true)
@@ -116,5 +218,102 @@ private struct FixedDurationProvider: RecordingDurationProviding {
 
     func duration(for url: URL) -> Duration? {
         duration
+    }
+}
+
+private func waitUntil(
+    timeout: Duration = .seconds(1),
+    condition: @escaping @MainActor @Sendable () -> Bool
+) async throws {
+    let deadline = ContinuousClock.now + timeout
+    while await !condition() {
+        if ContinuousClock.now >= deadline {
+            Issue.record("Timed out waiting for condition.")
+            return
+        }
+
+        try await Task.sleep(for: .milliseconds(10))
+    }
+}
+
+private func makeTranscript() -> TranscriptResult {
+    TranscriptResult(
+        text: "今日は要約機能について確認しました。",
+        localeIdentifier: "ja-JP",
+        sourceURL: URL(fileURLWithPath: "/tmp/2026-05-19_10-30-00_mix.m4a")
+    )
+}
+
+private func makeSummary() -> MeetingSummary {
+    MeetingSummary(
+        summary: "要約機能について確認した。",
+        topics: [MeetingTopic(title: "要約", detail: "Foundation Models を使う")],
+        actionItems: [MeetingActionItem(title: "実装する", owner: "DIO", dueDateText: nil)],
+        transcriptSourceURL: URL(fileURLWithPath: "/tmp/2026-05-19_10-30-00_mix.m4a"),
+        createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+    )
+}
+
+private struct FakeAudioTranscriptionService: AudioTranscriptionService {
+    let result: Result<TranscriptResult, Error>
+
+    func transcribe(
+        audioURL: URL,
+        locale: Locale
+    ) -> AsyncThrowingStream<TranscriptionEvent, Error> {
+        AsyncThrowingStream { continuation in
+            switch result {
+            case let .success(transcript):
+                continuation.yield(.completed(transcript))
+                continuation.finish()
+            case let .failure(error):
+                continuation.finish(throwing: error)
+            }
+        }
+    }
+}
+
+private struct FakeTranscriptSummaryService: TranscriptSummaryService {
+    let result: TranscriptSummaryResult
+
+    func summarize(_ transcript: TranscriptResult) async -> TranscriptSummaryResult {
+        result
+    }
+}
+
+private final class FakeMeetingSummaryStore: MeetingSummaryStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var summaryValue: MeetingSummary?
+    private var savedSummaryValue: MeetingSummary?
+    private var savedItemValue: RecordingLibraryItem?
+
+    init(summary: MeetingSummary?) {
+        summaryValue = summary
+    }
+
+    var savedSummary: MeetingSummary? {
+        lock.lock()
+        defer { lock.unlock() }
+        return savedSummaryValue
+    }
+
+    var savedItem: RecordingLibraryItem? {
+        lock.lock()
+        defer { lock.unlock() }
+        return savedItemValue
+    }
+
+    func summary(for item: RecordingLibraryItem) async throws -> MeetingSummary? {
+        lock.lock()
+        defer { lock.unlock() }
+        return summaryValue
+    }
+
+    func save(_ summary: MeetingSummary, for item: RecordingLibraryItem) async throws {
+        lock.lock()
+        summaryValue = summary
+        savedSummaryValue = summary
+        savedItemValue = item
+        lock.unlock()
     }
 }
