@@ -261,8 +261,8 @@ struct AudioProcessingView: View {
             return false
         }
 
-        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-            guard let url = fileURL(from: item) else {
+        provider.loadObject(ofClass: NSURL.self) { item, _ in
+            guard let url = item as? URL else {
                 return
             }
 
@@ -272,23 +272,6 @@ struct AudioProcessingView: View {
         }
 
         return true
-    }
-
-    private func fileURL(from item: NSSecureCoding?) -> URL? {
-        if let url = item as? URL {
-            return url
-        }
-
-        if let data = item as? Data,
-           let string = String(data: data, encoding: .utf8) {
-            return URL(string: string.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-
-        if let string = item as? String {
-            return URL(string: string.trimmingCharacters(in: .whitespacesAndNewlines))
-        }
-
-        return nil
     }
 }
 

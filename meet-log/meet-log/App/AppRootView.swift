@@ -25,6 +25,7 @@ struct AppRootView: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Process Audio")
+                        .accessibilityLabel("Process Audio")
 
                         Button {
                             destination = .library
@@ -34,6 +35,7 @@ struct AppRootView: View {
                         }
                         .buttonStyle(.borderless)
                         .help("Open Library")
+                        .accessibilityLabel("Open Library")
                     }
                     .padding(14)
                 }

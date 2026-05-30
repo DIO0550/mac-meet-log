@@ -74,10 +74,6 @@ final class AudioProcessingViewModel: ObservableObject {
             process(audioURL: url)
         case let .failure(error):
             if let cocoaError = error as? CocoaError, cocoaError.code == .userCancelled {
-                if case .idle = state {
-                    return
-                }
-                state = .idle
                 return
             }
 

@@ -82,6 +82,8 @@ nonisolated struct AudioProcessingJob: Sendable {
     ) async throws -> TranscriptResult {
         var finalTranscript: TranscriptResult?
 
+        continuation.yield(.transcribing(item, partialTranscript: nil))
+
         for try await event in transcriptionService.transcribe(audioURL: item.url, locale: locale) {
             try Task.checkCancellation()
 

@@ -47,6 +47,7 @@ struct AudioProcessingTests {
 
         let states = await collectStates(from: job.run(audioURL: sampleURL))
 
+        #expect(states.contains(.transcribing(item, partialTranscript: nil)))
         #expect(states.contains(.summarizing(item, transcript)))
         #expect(states.last == .completed(item, transcript, .summarized(summary)))
     }
@@ -112,6 +113,28 @@ struct AudioProcessingTests {
         viewModel.handleImporterResult(.failure(CocoaError(.userCancelled)))
 
         #expect(viewModel.state == .idle)
+        #expect(!viewModel.isImporterPresented)
+    }
+
+    @MainActor
+    @Test func viewModelPickerCancellationKeepsExistingResult() async throws {
+        let item = makeImportedItem()
+        let transcript = makeTranscript(text: "本文")
+        let summary = makeSummary()
+        let viewModel = AudioProcessingViewModel(
+            job: AudioProcessingJob(
+                importer: FakeAudioFileImporter(result: .success(item)),
+                transcriptionService: FakeAudioTranscriptionService(events: [.completed(transcript)]),
+                summaryService: FakeTranscriptSummaryService(result: .summarized(summary))
+            )
+        )
+
+        viewModel.process(audioURL: sampleURL)
+        try await waitUntil { !viewModel.isProcessing }
+        viewModel.presentImporter()
+        viewModel.handleImporterResult(.failure(CocoaError(.userCancelled)))
+
+        #expect(viewModel.state == .completed(item, transcript, .summarized(summary)))
         #expect(!viewModel.isImporterPresented)
     }
 
