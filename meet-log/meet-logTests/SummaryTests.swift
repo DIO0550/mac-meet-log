@@ -120,8 +120,30 @@ struct SummaryTests {
         try await store.save(sampleSummary, for: item)
         let loaded = try await store.summary(for: item)
 
-        #expect(loaded == sampleSummary)
-        #expect(FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("2026-05-19_10-30-00_summary.json").path))
+        #expect(loaded?.summary == sampleSummary.summary)
+        #expect(loaded?.topics.map(\.title) == sampleSummary.topics.map(\.title))
+        #expect(loaded?.topics.map(\.detail) == sampleSummary.topics.map(\.detail))
+        #expect(loaded?.actionItems.map(\.title) == sampleSummary.actionItems.map(\.title))
+        #expect(loaded?.actionItems.map(\.owner) == sampleSummary.actionItems.map(\.owner))
+        #expect(loaded?.actionItems.map(\.dueDateText) == sampleSummary.actionItems.map(\.dueDateText))
+        #expect(loaded?.transcriptSourceURL == sampleSummary.transcriptSourceURL)
+        #expect(loaded?.createdAt == sampleSummary.createdAt)
+        #expect(FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("2026-05-19_10-30-00_summary.md").path))
+    }
+
+    @MainActor
+    @Test func sidecarStoreSavesTranscriptMarkdown() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let item = libraryItem(directoryURL: directoryURL)
+        let store = MeetingSummarySidecarStore()
+
+        try await store.save(transcript(text: "今日は設計を確認しました。"), for: item)
+
+        let url = directoryURL.appendingPathComponent("2026-05-19_10-30-00_transcript.md")
+        let markdown = try String(contentsOf: url, encoding: .utf8)
+        #expect(markdown.contains("# Transcript"))
+        #expect(markdown.contains("## Text"))
+        #expect(markdown.contains("今日は設計を確認しました。"))
     }
 
     @MainActor

@@ -121,6 +121,7 @@ struct RecordingLibraryTests {
 
         #expect(viewModel.summaryState == .summarized(summary))
         #expect(summaryStore.savedSummary == summary)
+        #expect(summaryStore.savedTranscript == makeTranscript())
         #expect(summaryStore.savedItem == item)
     }
 
@@ -285,6 +286,7 @@ private final class FakeMeetingSummaryStore: MeetingSummaryStoring, @unchecked S
     private let lock = NSLock()
     private var summaryValue: MeetingSummary?
     private var savedSummaryValue: MeetingSummary?
+    private var savedTranscriptValue: TranscriptResult?
     private var savedItemValue: RecordingLibraryItem?
 
     init(summary: MeetingSummary?) {
@@ -303,6 +305,12 @@ private final class FakeMeetingSummaryStore: MeetingSummaryStoring, @unchecked S
         return savedItemValue
     }
 
+    var savedTranscript: TranscriptResult? {
+        lock.lock()
+        defer { lock.unlock() }
+        return savedTranscriptValue
+    }
+
     func summary(for item: RecordingLibraryItem) async throws -> MeetingSummary? {
         lock.lock()
         defer { lock.unlock() }
@@ -313,6 +321,13 @@ private final class FakeMeetingSummaryStore: MeetingSummaryStoring, @unchecked S
         lock.lock()
         summaryValue = summary
         savedSummaryValue = summary
+        savedItemValue = item
+        lock.unlock()
+    }
+
+    func save(_ transcript: TranscriptResult, for item: RecordingLibraryItem) async throws {
+        lock.lock()
+        savedTranscriptValue = transcript
         savedItemValue = item
         lock.unlock()
     }

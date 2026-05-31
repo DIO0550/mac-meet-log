@@ -158,6 +158,7 @@ final class LibraryViewModel: ObservableObject {
         Task {
             do {
                 let transcript = try await transcriptionService.finalTranscript(audioURL: item.mixdownURL)
+                try await summaryStore.save(transcript, for: item)
                 summaryState = .summarizing
                 await handleSummaryResult(await summaryService.summarize(transcript), for: item)
             } catch {
