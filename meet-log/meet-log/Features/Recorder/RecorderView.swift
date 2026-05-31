@@ -6,6 +6,7 @@
 //
 
 import DualTrackRecorder
+import AppKit
 import SwiftUI
 
 struct RecorderView: View {
@@ -59,18 +60,7 @@ struct RecorderView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(viewModel.isRecording ? Color.red : Color.secondary.opacity(0.16))
-                    .frame(width: 12, height: 12)
-
-                if viewModel.isRecording {
-                    Circle()
-                        .stroke(Color.red.opacity(0.35), lineWidth: 8)
-                        .frame(width: 22, height: 22)
-                }
-            }
-            .frame(width: 28, height: 28)
+            AppHeaderIcon(isRecording: viewModel.isRecording)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("meet-log")
@@ -113,6 +103,30 @@ struct RecorderView: View {
         case (false, false):
             "No source selected"
         }
+    }
+}
+
+private struct AppHeaderIcon: View {
+    let isRecording: Bool
+
+    var body: some View {
+        Image(nsImage: NSApplication.shared.applicationIconImage)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: 32, height: 32)
+            .overlay(alignment: .bottomTrailing) {
+                if isRecording {
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 9, height: 9)
+                        .overlay {
+                            Circle()
+                                .stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 2)
+                        }
+                        .offset(x: 2, y: 2)
+                }
+            }
+            .accessibilityHidden(true)
     }
 }
 
