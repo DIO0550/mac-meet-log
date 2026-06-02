@@ -3,6 +3,11 @@ import Testing
 @testable import DualTrackRecorder
 
 struct OutputDirectoryTests {
+    @Test func defaultURLUsesApplicationSupportRecordingsFolder() {
+        #expect(OutputDirectory.defaultURL.lastPathComponent == RecordingStorage.recordingsFolderName)
+        #expect(OutputDirectory.defaultURL.deletingLastPathComponent().lastPathComponent == RecordingStorage.applicationFolderName)
+    }
+
     @Test func createsMeetLogDirectoryAndNamesFilesByTimestamp() throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("OutputDirectoryTests", isDirectory: true)

@@ -6,7 +6,7 @@ import FoundationModels
 struct FoundationModelsSummaryService: TranscriptSummaryService {
     private let service: PromptedTranscriptSummaryService
 
-    init(promptBuilder: SummaryPromptBuilder = SummaryPromptBuilder()) {
+    nonisolated init(promptBuilder: SummaryPromptBuilder = SummaryPromptBuilder()) {
         service = PromptedTranscriptSummaryService(
             promptBuilder: promptBuilder,
             availabilityChecker: SystemSummaryAvailabilityChecker(),
@@ -21,6 +21,8 @@ struct FoundationModelsSummaryService: TranscriptSummaryService {
 
 @available(macOS 26.0, *)
 private struct SystemSummaryAvailabilityChecker: SummaryAvailabilityChecking {
+    nonisolated init() {}
+
     nonisolated func currentAvailability() -> SummaryAvailability {
         switch SystemLanguageModel.default.availability {
         case .available:
@@ -48,6 +50,8 @@ private struct SystemSummaryAvailabilityChecker: SummaryAvailabilityChecking {
 
 @available(macOS 26.0, *)
 private struct FoundationModelsSummaryGenerator: SummaryGenerating {
+    nonisolated init() {}
+
     nonisolated func generate(prompt: SummaryPrompt, transcript: TranscriptResult) async throws -> MeetingSummary {
         let session = LanguageModelSession(instructions: prompt.instructions)
         let response = try await session.respond(to: Self.jsonPrompt(from: prompt.prompt))

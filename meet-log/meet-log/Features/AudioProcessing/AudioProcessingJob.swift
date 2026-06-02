@@ -7,7 +7,7 @@ nonisolated struct AudioProcessingJob: Sendable {
 
     init(
         importer: AudioFileImporting = AVAudioFileImporter(),
-        transcriptionService: AudioTranscriptionService = LegacySpeechTranscriptionService(),
+        transcriptionService: AudioTranscriptionService = TranscriptionServiceFactory.makeDefault(),
         summaryService: TranscriptSummaryService = SummaryServiceFactory.makeDefault()
     ) {
         self.importer = importer

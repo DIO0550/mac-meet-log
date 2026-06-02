@@ -111,6 +111,40 @@ struct SummaryTests {
         #expect(result == .failed(.invalidStructuredOutput))
     }
 
+    @Test func fallbackSummaryServiceUsesFallbackWhenPrimaryIsUnavailable() async throws {
+        let fallbackSummary = MeetingSummary(
+            summary: "ローカル要約",
+            topics: [],
+            actionItems: [],
+            transcriptSourceURL: URL(fileURLWithPath: "/tmp/sample.m4a"),
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+        let service = FallbackTranscriptSummaryService(
+            primary: FakeTranscriptSummaryService(result: .unavailable(.appleIntelligenceDisabled)),
+            fallback: FakeTranscriptSummaryService(result: .summarized(fallbackSummary))
+        )
+
+        let result = await service.summarize(transcript(text: "本文"))
+
+        #expect(result == .summarized(fallbackSummary))
+    }
+
+    @Test func extractiveSummaryServiceSummarizesTranscriptWithoutAppleIntelligence() async throws {
+        let service = ExtractiveTranscriptSummaryService(sentenceLimit: 2, summaryCharacterLimit: 100, topicLimit: 2)
+
+        let result = await service.summarize(transcript(text: "今日は録音を確認しました。次に保存先を直しました。最後に要約を確認します。"))
+
+        guard case let .summarized(summary) = result else {
+            Issue.record("Expected a summarized result.")
+            return
+        }
+
+        #expect(summary.summary == "今日は録音を確認しました。次に保存先を直しました。")
+        #expect(summary.topics.map(\.title) == ["今日は録音を確認しました", "次に保存先を直しました"])
+        #expect(summary.actionItems.isEmpty)
+        #expect(summary.transcriptSourceURL == URL(fileURLWithPath: "/tmp/sample.m4a"))
+    }
+
     @MainActor
     @Test func sidecarStoreSavesAndLoadsSummary() async throws {
         let directoryURL = try makeTemporaryDirectory()
@@ -234,5 +268,13 @@ private struct FakeSummaryGenerator: SummaryGenerating {
 
     func generate(prompt: SummaryPrompt, transcript: TranscriptResult) async throws -> MeetingSummary {
         try result.get()
+    }
+}
+
+private struct FakeTranscriptSummaryService: TranscriptSummaryService {
+    let result: TranscriptSummaryResult
+
+    func summarize(_ transcript: TranscriptResult) async -> TranscriptSummaryResult {
+        result
     }
 }

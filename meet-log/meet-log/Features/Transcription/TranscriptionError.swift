@@ -9,6 +9,7 @@ enum TranscriptionError: Error, Equatable, LocalizedError, Sendable {
     case onDeviceRecognitionUnavailable(localeIdentifier: String)
     case speechAnalyzerUnavailable
     case speechAnalyzerAssetsUnavailable(localeIdentifier: String)
+    case siriAndDictationDisabled
     case recognitionFailed(String)
     case emptyResult
     case transcriptionIncomplete
@@ -31,6 +32,8 @@ enum TranscriptionError: Error, Equatable, LocalizedError, Sendable {
             return "The newer on-device speech analyzer is unavailable on this Mac."
         case let .speechAnalyzerAssetsUnavailable(localeIdentifier):
             return "On-device speech analyzer assets are unavailable for \(localeIdentifier)."
+        case .siriAndDictationDisabled:
+            return "Siri and Dictation are disabled. Enable Dictation in System Settings > Keyboard > Dictation, then try again."
         case let .recognitionFailed(message):
             return "Speech recognition failed: \(message)"
         case .emptyResult:

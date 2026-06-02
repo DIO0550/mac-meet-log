@@ -13,6 +13,7 @@ struct TranscriptionTests {
             .onDeviceRecognitionUnavailable(localeIdentifier: "ja-JP"),
             .speechAnalyzerUnavailable,
             .speechAnalyzerAssetsUnavailable(localeIdentifier: "ja-JP"),
+            .siriAndDictationDisabled,
             .recognitionFailed("Speech failed"),
             .emptyResult,
             .transcriptionIncomplete
@@ -159,6 +160,19 @@ struct TranscriptionTests {
         recognizer.emit(.init(text: "", isFinal: true, error: TestRecognitionError.boom))
 
         #expect(await failureTask.value == .recognitionFailed("boom"))
+    }
+
+    @Test func disabledSiriAndDictationCallbackMapsToTypedError() async throws {
+        let recognizer = FakeSpeechRecognizer()
+        let service = makeService(recognizer: recognizer)
+        let failureTask = Task {
+            await failure(from: service.transcribe(audioURL: sampleAudioURL, locale: japaneseLocale))
+        }
+
+        try await waitUntil { recognizer.hasResultHandler }
+        recognizer.emit(.init(text: "", isFinal: true, error: TestRecognitionError.siriAndDictationDisabled))
+
+        #expect(await failureTask.value == .siriAndDictationDisabled)
     }
 
     @Test func streamTerminationCancelsRecognitionTask() async throws {
@@ -357,9 +371,15 @@ private final class FakeSpeechRecognitionTask: LegacySpeechRecognitionTasking, @
 
 private enum TestRecognitionError: Error, LocalizedError {
     case boom
+    case siriAndDictationDisabled
 
     var errorDescription: String? {
-        "boom"
+        switch self {
+        case .boom:
+            return "boom"
+        case .siriAndDictationDisabled:
+            return "Siri and Dictation are disabled"
+        }
     }
 }
 

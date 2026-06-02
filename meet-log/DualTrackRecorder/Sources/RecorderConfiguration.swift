@@ -7,9 +7,7 @@ public struct RecorderConfiguration: Equatable, Sendable {
     public let fileNamePrefix: String
 
     public init(
-        outputDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Music", isDirectory: true)
-            .appendingPathComponent("meet-log", isDirectory: true),
+        outputDirectory: URL = RecordingStorage.defaultOutputDirectoryURL,
         fileNamePrefix: String = "Meet Log"
     ) {
         self.outputDirectory = outputDirectory
