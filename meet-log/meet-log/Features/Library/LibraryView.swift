@@ -1,4 +1,5 @@
 import SwiftUI
+import DualTrackRecorder
 
 struct LibraryView: View {
     @StateObject private var viewModel: LibraryViewModel
@@ -61,7 +62,7 @@ struct LibraryView: View {
                     Text("Library")
                         .font(.title3.weight(.semibold))
 
-                    Text("Saved mixdowns from ~/Music/meet-log")
+                    Text("Saved mixdowns from \(RecordingStorage.defaultOutputDirectoryDisplayPath)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -5,7 +5,7 @@ struct LegacySpeechTranscriptionService: AudioTranscriptionService {
     private let authorizationProvider: LegacySpeechAuthorizationProviding
     private let recognizerFactory: LegacySpeechRecognizerMaking
 
-    init(
+    nonisolated init(
         authorizationProvider: LegacySpeechAuthorizationProviding = SystemSpeechAuthorizationProvider(),
         recognizerFactory: LegacySpeechRecognizerMaking = SystemSpeechRecognizerFactory()
     ) {
@@ -124,7 +124,7 @@ nonisolated final class LegacySpeechTranscriptionCoordinator: @unchecked Sendabl
 
     nonisolated private func handle(_ callback: LegacySpeechRecognitionCallback) {
         if let error = callback.error {
-            continuation.finish(throwing: TranscriptionError.recognitionFailed(error.localizedDescription))
+            continuation.finish(throwing: Self.map(error))
             return
         }
 
@@ -153,6 +153,15 @@ nonisolated final class LegacySpeechTranscriptionCoordinator: @unchecked Sendabl
         )
         continuation.finish()
     }
+
+    nonisolated private static func map(_ error: Error) -> TranscriptionError {
+        let message = error.localizedDescription
+        if message.localizedCaseInsensitiveContains("Siri and Dictation are disabled") {
+            return .siriAndDictationDisabled
+        }
+
+        return .recognitionFailed(message)
+    }
 }
 
 enum LegacySpeechAuthorizationStatus: Equatable, Sendable {
@@ -168,6 +177,8 @@ protocol LegacySpeechAuthorizationProviding: Sendable {
 }
 
 struct SystemSpeechAuthorizationProvider: LegacySpeechAuthorizationProviding {
+    nonisolated init() {}
+
     nonisolated func authorizationStatusAfterRequest() async -> LegacySpeechAuthorizationStatus {
         let currentStatus = Self.map(SFSpeechRecognizer.authorizationStatus())
         switch currentStatus {
@@ -242,7 +253,9 @@ protocol LegacySpeechRecognitionTasking: Sendable {
 }
 
 struct SystemSpeechRecognizerFactory: LegacySpeechRecognizerMaking {
-    func recognizer(locale: Locale) -> LegacySpeechRecognizing? {
+    nonisolated init() {}
+
+    nonisolated func recognizer(locale: Locale) -> LegacySpeechRecognizing? {
         guard let recognizer = SFSpeechRecognizer(locale: locale) else {
             return nil
         }
@@ -251,18 +264,18 @@ struct SystemSpeechRecognizerFactory: LegacySpeechRecognizerMaking {
     }
 }
 
-final class SystemSpeechRecognizer: LegacySpeechRecognizing, @unchecked Sendable {
+nonisolated final class SystemSpeechRecognizer: LegacySpeechRecognizing, @unchecked Sendable {
     private let recognizer: SFSpeechRecognizer
 
-    init(recognizer: SFSpeechRecognizer) {
+    nonisolated init(recognizer: SFSpeechRecognizer) {
         self.recognizer = recognizer
     }
 
-    var isAvailable: Bool {
+    nonisolated var isAvailable: Bool {
         recognizer.isAvailable
     }
 
-    var supportsOnDeviceRecognition: Bool {
+    nonisolated var supportsOnDeviceRecognition: Bool {
         recognizer.supportsOnDeviceRecognition
     }
 

@@ -13,6 +13,7 @@ struct TranscriptionTests {
             .onDeviceRecognitionUnavailable(localeIdentifier: "ja-JP"),
             .speechAnalyzerUnavailable,
             .speechAnalyzerAssetsUnavailable(localeIdentifier: "ja-JP"),
+            .siriAndDictationDisabled,
             .recognitionFailed("Speech failed"),
             .emptyResult,
             .transcriptionIncomplete
@@ -161,6 +162,19 @@ struct TranscriptionTests {
         #expect(await failureTask.value == .recognitionFailed("boom"))
     }
 
+    @Test func disabledSiriAndDictationCallbackMapsToTypedError() async throws {
+        let recognizer = FakeSpeechRecognizer()
+        let service = makeService(recognizer: recognizer)
+        let failureTask = Task {
+            await failure(from: service.transcribe(audioURL: sampleAudioURL, locale: japaneseLocale))
+        }
+
+        try await waitUntil { recognizer.hasResultHandler }
+        recognizer.emit(.init(text: "", isFinal: true, error: TestRecognitionError.siriAndDictationDisabled))
+
+        #expect(await failureTask.value == .siriAndDictationDisabled)
+    }
+
     @Test func streamTerminationCancelsRecognitionTask() async throws {
         let recognizer = FakeSpeechRecognizer()
         let service = makeService(recognizer: recognizer)
@@ -199,6 +213,30 @@ struct TranscriptionTests {
         let service = PartialOnlyTranscriptionService()
 
         await #expect(throws: TranscriptionError.transcriptionIncomplete) {
+            try await service.finalTranscript(audioURL: sampleAudioURL, locale: japaneseLocale)
+        }
+    }
+
+    @Test func fallbackServiceUsesFallbackWhenSpeechAnalyzerAssetsAreUnavailable() async throws {
+        let service = FallbackAudioTranscriptionService(
+            primary: FailingTranscriptionService(error: TranscriptionError.speechAnalyzerAssetsUnavailable(localeIdentifier: "ja-JP")),
+            fallback: CompletedTranscriptionService(text: "フォールバック結果")
+        )
+
+        let result = try await service.finalTranscript(audioURL: sampleAudioURL, locale: japaneseLocale)
+
+        #expect(result.text == "フォールバック結果")
+        #expect(result.localeIdentifier == "ja-JP")
+        #expect(result.sourceURL == sampleAudioURL)
+    }
+
+    @Test func fallbackServiceDoesNotFallbackForDictationDisabled() async {
+        let service = FallbackAudioTranscriptionService(
+            primary: FailingTranscriptionService(error: TranscriptionError.siriAndDictationDisabled),
+            fallback: CompletedTranscriptionService(text: "使われない")
+        )
+
+        await #expect(throws: TranscriptionError.siriAndDictationDisabled) {
             try await service.finalTranscript(audioURL: sampleAudioURL, locale: japaneseLocale)
         }
     }
@@ -357,9 +395,15 @@ private final class FakeSpeechRecognitionTask: LegacySpeechRecognitionTasking, @
 
 private enum TestRecognitionError: Error, LocalizedError {
     case boom
+    case siriAndDictationDisabled
 
     var errorDescription: String? {
-        "boom"
+        switch self {
+        case .boom:
+            return "boom"
+        case .siriAndDictationDisabled:
+            return "Siri and Dictation are disabled"
+        }
     }
 }
 
@@ -370,6 +414,41 @@ private struct PartialOnlyTranscriptionService: AudioTranscriptionService {
     ) -> AsyncThrowingStream<TranscriptionEvent, Error> {
         AsyncThrowingStream { continuation in
             continuation.yield(.partial("途中"))
+            continuation.finish()
+        }
+    }
+}
+
+private struct FailingTranscriptionService: AudioTranscriptionService {
+    let error: Error
+
+    func transcribe(
+        audioURL: URL,
+        locale: Locale
+    ) -> AsyncThrowingStream<TranscriptionEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.finish(throwing: error)
+        }
+    }
+}
+
+private struct CompletedTranscriptionService: AudioTranscriptionService {
+    let text: String
+
+    func transcribe(
+        audioURL: URL,
+        locale: Locale
+    ) -> AsyncThrowingStream<TranscriptionEvent, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(
+                .completed(
+                    TranscriptResult(
+                        text: text,
+                        localeIdentifier: locale.identifier,
+                        sourceURL: audioURL
+                    )
+                )
+            )
             continuation.finish()
         }
     }

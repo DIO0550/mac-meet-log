@@ -5,6 +5,8 @@ import Speech
 
 @available(macOS 26.0, *)
 struct SpeechAnalyzerTranscriptionService: AudioTranscriptionService {
+    nonisolated init() {}
+
     nonisolated func transcribe(
         audioURL: URL,
         locale: Locale = Locale(identifier: "ja-JP")

@@ -6,11 +6,11 @@ struct SummaryPrompt: Equatable, Sendable {
 }
 
 struct SummaryPromptBuilder: Sendable {
-    static let defaultCharacterLimit = 24_000
+    nonisolated static let defaultCharacterLimit = 24_000
 
     let characterLimit: Int
 
-    init(characterLimit: Int = Self.defaultCharacterLimit) {
+    nonisolated init(characterLimit: Int = Self.defaultCharacterLimit) {
         self.characterLimit = characterLimit
     }
 

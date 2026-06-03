@@ -722,7 +722,7 @@ struct RecorderErrorPresentation: Equatable, Identifiable {
             recoveryAction = nil
         case .outputFailed:
             title = "Save location is not available"
-            message = "The recording folder could not be prepared. Check your Music folder and try again."
+            message = "The recording folder could not be prepared. Check Application Support permissions and try again."
             recoveryAction = nil
         case .invalidState:
             title = "Recorder is busy"

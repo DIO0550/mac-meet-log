@@ -1,4 +1,5 @@
 import AVFoundation
+import DualTrackRecorder
 import Foundation
 
 enum RecordingLibraryStoreError: Error, Equatable, LocalizedError {
@@ -23,9 +24,7 @@ struct OutputDirectoryRecordingLibraryStore: RecordingLibraryStoring {
     private let durationProvider: RecordingDurationProviding
 
     init(
-        outputDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Music", isDirectory: true)
-            .appendingPathComponent("meet-log", isDirectory: true),
+        outputDirectoryURL: URL = RecordingStorage.defaultOutputDirectoryURL,
         fileManager: FileManager = .default,
         durationProvider: RecordingDurationProviding = AVRecordingDurationProvider()
     ) {

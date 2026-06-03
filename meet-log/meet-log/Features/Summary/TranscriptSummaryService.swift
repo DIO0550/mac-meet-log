@@ -89,7 +89,7 @@ struct PromptedTranscriptSummaryService: TranscriptSummaryService {
     private let availabilityChecker: SummaryAvailabilityChecking
     private let generator: SummaryGenerating
 
-    init(
+    nonisolated init(
         promptBuilder: SummaryPromptBuilder = SummaryPromptBuilder(),
         availabilityChecker: SummaryAvailabilityChecking,
         generator: SummaryGenerating

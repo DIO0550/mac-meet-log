@@ -1,9 +1,7 @@
 import Foundation
 
 struct OutputDirectory {
-    static let defaultURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Music", isDirectory: true)
-        .appendingPathComponent("meet-log", isDirectory: true)
+    static let defaultURL = RecordingStorage.defaultOutputDirectoryURL
 
     let url: URL
     private let fileManager: FileManager

@@ -44,7 +44,7 @@ final class LibraryViewModel: ObservableObject {
     convenience init() {
         self.init(
             store: OutputDirectoryRecordingLibraryStore(),
-            transcriptionService: LegacySpeechTranscriptionService(),
+            transcriptionService: TranscriptionServiceFactory.makeDefault(),
             summaryService: SummaryServiceFactory.makeDefault(),
             summaryStore: MeetingSummarySidecarStore()
         )
@@ -53,7 +53,7 @@ final class LibraryViewModel: ObservableObject {
     convenience init(store: RecordingLibraryStoring) {
         self.init(
             store: store,
-            transcriptionService: LegacySpeechTranscriptionService(),
+            transcriptionService: TranscriptionServiceFactory.makeDefault(),
             summaryService: UnavailableSummaryService(
                 reason: .foundationModelsUnavailable("Foundation Models is unavailable on this Mac.")
             ),

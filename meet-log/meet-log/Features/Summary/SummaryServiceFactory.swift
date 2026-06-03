@@ -1,15 +1,16 @@
 import Foundation
 
 enum SummaryServiceFactory {
-    static func makeDefault() -> TranscriptSummaryService {
+    nonisolated static func makeDefault() -> TranscriptSummaryService {
         #if canImport(FoundationModels) && compiler(>=6.2)
         if #available(macOS 26.0, *) {
-            return FoundationModelsSummaryService()
+            return FallbackTranscriptSummaryService(
+                primary: FoundationModelsSummaryService(),
+                fallback: ExtractiveTranscriptSummaryService()
+            )
         }
         #endif
 
-        return UnavailableSummaryService(
-            reason: .foundationModelsUnavailable("Foundation Models is unavailable on this Mac.")
-        )
+        return ExtractiveTranscriptSummaryService()
     }
 }
