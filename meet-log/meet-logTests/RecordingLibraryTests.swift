@@ -119,6 +119,29 @@ struct RecordingLibraryTests {
     }
 
     @MainActor
+    @Test func unreadableSessionFolderDoesNotFailLibraryLoad() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let readableDirectoryURL = directoryURL.appendingPathComponent("2026-05-19_14-00-00", isDirectory: true)
+        let unreadableDirectoryURL = directoryURL.appendingPathComponent("2026-05-19_15-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: readableDirectoryURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: unreadableDirectoryURL, withIntermediateDirectories: true)
+        try Data().write(to: readableDirectoryURL.appendingPathComponent("2026-05-19_14-00-00_mix.m4a"))
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: unreadableDirectoryURL.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: unreadableDirectoryURL.path)
+        }
+
+        let store = OutputDirectoryRecordingLibraryStore(
+            outputDirectoryURL: directoryURL,
+            durationProvider: FixedDurationProvider(duration: nil)
+        )
+
+        let items = try await store.recordings()
+
+        #expect(items.map { $0.id } == ["2026-05-19_14-00-00"])
+    }
+
+    @MainActor
     @Test func missingDirectoryReturnsEmptyLibrary() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

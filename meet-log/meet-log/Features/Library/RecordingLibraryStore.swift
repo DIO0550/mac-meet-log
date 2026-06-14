@@ -49,7 +49,9 @@ struct OutputDirectoryRecordingLibraryStore: RecordingLibraryStoring {
 
         let flatItems = try sessionItems(in: outputDirectoryURL)
         let folderItems = try childDirectoryURLs(in: outputDirectoryURL)
-            .flatMap { try sessionItems(in: $0) }
+            .flatMap { directoryURL in
+                (try? sessionItems(in: directoryURL)) ?? []
+            }
 
         return mergedItems(flatItems + folderItems)
             .sorted { lhs, rhs in
