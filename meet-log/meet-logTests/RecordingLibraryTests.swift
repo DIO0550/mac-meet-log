@@ -97,6 +97,28 @@ struct RecordingLibraryTests {
     }
 
     @MainActor
+    @Test func sessionFolderItemWinsWhenFlatItemHasSameID() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let sessionDirectoryURL = directoryURL.appendingPathComponent("2026-05-19_13-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectoryURL, withIntermediateDirectories: true)
+        try Data().write(to: directoryURL.appendingPathComponent("2026-05-19_13-00-00_mix.m4a"))
+        try Data().write(to: sessionDirectoryURL.appendingPathComponent("2026-05-19_13-00-00_mix.m4a"))
+        try Data().write(to: sessionDirectoryURL.appendingPathComponent("2026-05-19_13-00-00_system.m4a"))
+        try Data().write(to: sessionDirectoryURL.appendingPathComponent("2026-05-19_13-00-00_microphone.m4a"))
+
+        let store = OutputDirectoryRecordingLibraryStore(
+            outputDirectoryURL: directoryURL,
+            durationProvider: FixedDurationProvider(duration: nil)
+        )
+
+        let items = try await store.recordings()
+
+        #expect(items.count == 1)
+        #expect(items.first?.sessionDirectoryURL.standardizedFileURL == sessionDirectoryURL.standardizedFileURL)
+        #expect(items.first?.sourceSummary == "System audio + microphone")
+    }
+
+    @MainActor
     @Test func missingDirectoryReturnsEmptyLibrary() async throws {
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

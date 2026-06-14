@@ -104,12 +104,21 @@ struct OutputDirectoryRecordingLibraryStore: RecordingLibraryStoring {
     }
 
     private func mergedItems(_ items: [RecordingLibraryItem]) -> [RecordingLibraryItem] {
-        var seenIDs = Set<RecordingLibraryItem.ID>()
+        var ids: [RecordingLibraryItem.ID] = []
+        var itemsByID: [RecordingLibraryItem.ID: RecordingLibraryItem] = [:]
         var result: [RecordingLibraryItem] = []
 
-        for item in items where !seenIDs.contains(item.id) {
-            seenIDs.insert(item.id)
-            result.append(item)
+        for item in items {
+            if itemsByID[item.id] == nil {
+                ids.append(item.id)
+            }
+            itemsByID[item.id] = item
+        }
+
+        for id in ids {
+            if let item = itemsByID[id] {
+                result.append(item)
+            }
         }
 
         return result
