@@ -200,8 +200,8 @@ private struct LibraryItemRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: item.canRemix ? "waveform.badge.plus" : (item.hasMissingFiles ? "waveform.badge.exclamationmark" : "waveform"))
-                .foregroundStyle(item.canRemix ? .orange : (item.hasMissingFiles ? .orange : .blue))
+            Image(systemName: statusIconName)
+                .foregroundStyle(statusColor)
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 5) {
@@ -227,6 +227,22 @@ private struct LibraryItemRow: View {
             }
         }
         .padding(.vertical, 6)
+    }
+
+    private var statusIconName: String {
+        if item.canRemix {
+            return "waveform.badge.plus"
+        }
+
+        if item.hasMissingFiles {
+            return "waveform.badge.exclamationmark"
+        }
+
+        return "waveform"
+    }
+
+    private var statusColor: Color {
+        item.canRemix || item.hasMissingFiles ? .orange : .blue
     }
 }
 
