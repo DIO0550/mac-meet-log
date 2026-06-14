@@ -21,13 +21,21 @@ struct OutputDirectory {
     }
 
     func fileSet(for date: Date) throws -> OutputFileSet {
-        let directory = try prepare()
+        let rootDirectory = try prepare()
         let timestamp = Self.timestampFormatter.string(from: date)
+        let sessionDirectory = rootDirectory.appendingPathComponent(timestamp, isDirectory: true)
+
+        do {
+            try fileManager.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        } catch {
+            throw RecorderError.outputFailed("Could not create recording session directory: \(error.localizedDescription)")
+        }
 
         return OutputFileSet(
-            systemAudioURL: directory.appendingPathComponent("\(timestamp)_system.m4a", isDirectory: false),
-            microphoneURL: directory.appendingPathComponent("\(timestamp)_microphone.m4a", isDirectory: false),
-            mixdownURL: directory.appendingPathComponent("\(timestamp)_mix.m4a", isDirectory: false),
+            sessionDirectoryURL: sessionDirectory,
+            systemAudioURL: sessionDirectory.appendingPathComponent("\(timestamp)_system.m4a", isDirectory: false),
+            microphoneURL: sessionDirectory.appendingPathComponent("\(timestamp)_microphone.m4a", isDirectory: false),
+            mixdownURL: sessionDirectory.appendingPathComponent("\(timestamp)_mix.m4a", isDirectory: false),
             displayFileName: "\(timestamp)_mix.m4a"
         )
     }
@@ -42,6 +50,7 @@ struct OutputDirectory {
 }
 
 struct OutputFileSet: Equatable, Sendable {
+    let sessionDirectoryURL: URL
     let systemAudioURL: URL
     let microphoneURL: URL
     let mixdownURL: URL

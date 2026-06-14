@@ -1,5 +1,12 @@
 import Combine
+import DualTrackRecorder
 import Foundation
+
+protocol RecordingLibraryMixdownServicing: Sendable {
+    func export(systemAudioURL: URL?, microphoneURL: URL?, destinationURL: URL) async throws -> URL
+}
+
+extension RecordingMixdownService: RecordingLibraryMixdownServicing {}
 
 @MainActor
 final class LibraryViewModel: ObservableObject {
@@ -20,6 +27,12 @@ final class LibraryViewModel: ObservableObject {
         case failed(String)
     }
 
+    enum RemixState: Equatable {
+        case idle
+        case mixing(RecordingLibraryItem.ID)
+        case failed(RecordingLibraryItem.ID, String)
+    }
+
     @Published private(set) var state: State = .loading
     @Published var selectedID: RecordingLibraryItem.ID? {
         didSet {
@@ -32,11 +45,13 @@ final class LibraryViewModel: ObservableObject {
     }
     @Published private(set) var playbackState: MixdownPlaybackController.State = .stopped
     @Published private(set) var summaryState: SummaryState = .idle
+    @Published private(set) var remixState: RemixState = .idle
 
     private let store: RecordingLibraryStoring
     private let transcriptionService: AudioTranscriptionService
     private let summaryService: TranscriptSummaryService
     private let summaryStore: MeetingSummaryStoring
+    private let mixdownService: RecordingLibraryMixdownServicing
     private lazy var playbackController = MixdownPlaybackController { [weak self] state in
         self?.playbackState = state
     }
@@ -46,7 +61,8 @@ final class LibraryViewModel: ObservableObject {
             store: OutputDirectoryRecordingLibraryStore(),
             transcriptionService: TranscriptionServiceFactory.makeDefault(),
             summaryService: SummaryServiceFactory.makeDefault(),
-            summaryStore: MeetingSummarySidecarStore()
+            summaryStore: MeetingSummarySidecarStore(),
+            mixdownService: RecordingMixdownService()
         )
     }
 
@@ -57,7 +73,8 @@ final class LibraryViewModel: ObservableObject {
             summaryService: UnavailableSummaryService(
                 reason: .foundationModelsUnavailable("Foundation Models is unavailable on this Mac.")
             ),
-            summaryStore: MeetingSummarySidecarStore()
+            summaryStore: MeetingSummarySidecarStore(),
+            mixdownService: RecordingMixdownService()
         )
     }
 
@@ -65,12 +82,14 @@ final class LibraryViewModel: ObservableObject {
         store: RecordingLibraryStoring,
         transcriptionService: AudioTranscriptionService,
         summaryService: TranscriptSummaryService,
-        summaryStore: MeetingSummaryStoring
+        summaryStore: MeetingSummaryStoring,
+        mixdownService: RecordingLibraryMixdownServicing = RecordingMixdownService()
     ) {
         self.store = store
         self.transcriptionService = transcriptionService
         self.summaryService = summaryService
         self.summaryStore = summaryStore
+        self.mixdownService = mixdownService
     }
 
     var items: [RecordingLibraryItem] {
@@ -110,6 +129,18 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    var isRemixingSelectedItem: Bool {
+        guard let selectedItem else {
+            return false
+        }
+
+        if case .mixing(selectedItem.id) = remixState {
+            return true
+        }
+
+        return false
+    }
+
     func load() async {
         await refresh(shouldShowLoading: true)
     }
@@ -125,7 +156,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func loadSummaryForSelectedItem() {
-        guard let selectedItem else {
+        guard let selectedItem, selectedItem.hasUsableMixdown else {
             summaryState = .idle
             return
         }
@@ -147,7 +178,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func generateSummaryForSelectedItem() {
-        guard let selectedItem else {
+        guard let selectedItem, selectedItem.hasUsableMixdown else {
             summaryState = .idle
             return
         }
@@ -168,7 +199,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func togglePlayback() {
-        guard let selectedItem else {
+        guard let selectedItem, selectedItem.hasUsableMixdown else {
             return
         }
 
@@ -185,6 +216,29 @@ final class LibraryViewModel: ObservableObject {
         }
 
         LibraryFinder.reveal(fileURL: selectedItem.mixdownURL)
+    }
+
+    func remixSelectedItem() {
+        guard let selectedItem, selectedItem.canRemix, !isRemixingSelectedItem else {
+            return
+        }
+
+        let item = selectedItem
+        remixState = .mixing(item.id)
+
+        Task {
+            do {
+                _ = try await mixdownService.export(
+                    systemAudioURL: item.existingSystemAudioURL,
+                    microphoneURL: item.existingMicrophoneURL,
+                    destinationURL: item.mixdownURL
+                )
+                remixState = .idle
+                await refresh(shouldShowLoading: false)
+            } catch {
+                remixState = .failed(item.id, error.localizedDescription)
+            }
+        }
     }
 
     private func refresh(shouldShowLoading: Bool) async {

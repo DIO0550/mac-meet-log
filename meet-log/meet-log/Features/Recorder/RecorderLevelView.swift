@@ -45,19 +45,26 @@ struct RecorderLevelView: View {
 
     private var waveformView: some View {
         GeometryReader { geometry in
-            HStack(alignment: .center, spacing: 4) {
+            let sampleCount = max(waveform.samples.count, 1)
+            let spacing = min(4, geometry.size.width / CGFloat(sampleCount) * 0.35)
+            let totalSpacing = spacing * CGFloat(max(sampleCount - 1, 0))
+            let availableBarWidth = max(0, geometry.size.width - totalSpacing)
+            let barWidth = max(1, availableBarWidth / CGFloat(sampleCount))
+
+            HStack(alignment: .center, spacing: spacing) {
                 ForEach(waveform.samples.indices, id: \.self) { index in
                     let sample = waveform.samples[index]
 
                     Capsule()
                         .fill(isActive ? Color.red.opacity(0.82) : Color.secondary.opacity(0.34))
                         .frame(
-                            width: max(3, (geometry.size.width - 108) / CGFloat(max(waveform.samples.count, 1))),
+                            width: barWidth,
                             height: max(5, geometry.size.height * CGFloat(clamped(sample)))
                         )
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .clipped()
         }
         .frame(height: 72)
         .accessibilityLabel("Input waveform")

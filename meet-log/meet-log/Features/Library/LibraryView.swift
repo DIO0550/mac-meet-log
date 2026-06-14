@@ -200,8 +200,8 @@ private struct LibraryItemRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: item.hasMissingFiles ? "waveform.badge.exclamationmark" : "waveform")
-                .foregroundStyle(item.hasMissingFiles ? .orange : .blue)
+            Image(systemName: item.canRemix ? "waveform.badge.plus" : (item.hasMissingFiles ? "waveform.badge.exclamationmark" : "waveform"))
+                .foregroundStyle(item.canRemix ? .orange : (item.hasMissingFiles ? .orange : .blue))
                 .frame(width: 22)
 
             VStack(alignment: .leading, spacing: 5) {
@@ -265,7 +265,11 @@ private struct LibraryDetailPane: View {
 
                 Spacer(minLength: 0)
 
-                if item.hasMissingFiles {
+                if item.canRemix {
+                    Label("Needs mix", systemImage: "waveform.badge.plus")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.orange)
+                } else if item.hasMissingFiles {
                     Label("Files missing", systemImage: "exclamationmark.triangle.fill")
                         .font(.caption.weight(.medium))
                         .foregroundStyle(.orange)
@@ -288,28 +292,56 @@ private struct LibraryDetailPane: View {
         }
     }
 
+    @ViewBuilder
     private var actions: some View {
+        if let item = viewModel.selectedItem {
+            actions(for: item)
+        }
+    }
+
+    private func actions(for item: RecordingLibraryItem) -> some View {
         HStack(spacing: 10) {
-            Button(action: viewModel.togglePlayback) {
-                Label(
-                    viewModel.isPlayingSelectedItem ? "Stop" : "Play Mixdown",
-                    systemImage: viewModel.isPlayingSelectedItem ? "stop.fill" : "play.fill"
-                )
+            if item.canRemix {
+                Button(action: viewModel.remixSelectedItem) {
+                    Label(
+                        viewModel.isRemixingSelectedItem ? "Mixing..." : "Create Mix",
+                        systemImage: viewModel.isRemixingSelectedItem ? "hourglass" : "waveform.badge.plus"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.isRemixingSelectedItem)
+            } else {
+                Button(action: viewModel.togglePlayback) {
+                    Label(
+                        viewModel.isPlayingSelectedItem ? "Stop" : "Play Mixdown",
+                        systemImage: viewModel.isPlayingSelectedItem ? "stop.fill" : "play.fill"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!item.hasUsableMixdown)
             }
-            .buttonStyle(.borderedProminent)
 
             Button(action: viewModel.revealSelectedItemInFinder) {
                 Label("Show in Finder", systemImage: "folder")
             }
             .buttonStyle(.bordered)
 
-            Button(action: viewModel.generateSummaryForSelectedItem) {
-                Label("Summarize", systemImage: "text.badge.checkmark")
+            if !item.canRemix {
+                Button(action: viewModel.generateSummaryForSelectedItem) {
+                    Label("Summarize", systemImage: "text.badge.checkmark")
+                }
+                .buttonStyle(.bordered)
+                .disabled(viewModel.isSummaryBusy || !item.hasUsableMixdown)
             }
-            .buttonStyle(.bordered)
-            .disabled(viewModel.isSummaryBusy || viewModel.selectedItem?.hasMissingFiles == true)
 
             if case let .failed(message) = viewModel.playbackState {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            }
+
+            if case let .failed(id, message) = viewModel.remixState, id == item.id {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.red)
@@ -338,8 +370,8 @@ private struct LibraryDetailPane: View {
             switch viewModel.summaryState {
             case .idle:
                 SummaryMessageRow(
-                    systemImage: item.hasMissingFiles ? "exclamationmark.triangle" : "text.badge.plus",
-                    message: item.hasMissingFiles ? "Mixdown file is missing." : "No summary saved yet."
+                    systemImage: item.canRemix ? "waveform.badge.plus" : (item.hasMissingFiles ? "exclamationmark.triangle" : "text.badge.plus"),
+                    message: item.canRemix ? "Create a mix before summarizing." : (item.hasMissingFiles ? "Mixdown file is missing." : "No summary saved yet.")
                 )
             case .loadingSaved:
                 SummaryMessageRow(systemImage: "clock", message: "Loading saved summary...")
@@ -373,7 +405,8 @@ private struct LibraryDetailPane: View {
                     title: "Mixdown",
                     url: item.mixdownURL,
                     exists: item.fileExistence.mixdownExists,
-                    isRequired: true
+                    isRequired: true,
+                    missingStatusText: item.canRemix ? "Needs mix" : "Missing"
                 )
                 Divider()
                 LibraryFileStatusRow(
@@ -480,6 +513,7 @@ private struct LibraryFileStatusRow: View {
     let url: URL?
     let exists: Bool
     let isRequired: Bool
+    var missingStatusText: String? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -524,7 +558,7 @@ private struct LibraryFileStatusRow: View {
             return "Available"
         }
 
-        return isRequired ? "Missing" : "Not saved"
+        return missingStatusText ?? (isRequired ? "Missing" : "Not saved")
     }
 
     private var statusColor: Color {
