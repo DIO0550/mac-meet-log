@@ -385,10 +385,8 @@ private struct LibraryDetailPane: View {
 
             switch viewModel.summaryState {
             case .idle:
-                SummaryMessageRow(
-                    systemImage: item.canRemix ? "waveform.badge.plus" : (item.hasMissingFiles ? "exclamationmark.triangle" : "text.badge.plus"),
-                    message: item.canRemix ? "Create a mix before summarizing." : (item.hasMissingFiles ? "Mixdown file is missing." : "No summary saved yet.")
-                )
+                let idleMessage = summaryIdleMessage(for: item)
+                SummaryMessageRow(systemImage: idleMessage.systemImage, message: idleMessage.message)
             case .loadingSaved:
                 SummaryMessageRow(systemImage: "clock", message: "Loading saved summary...")
             case .transcribing:
@@ -409,6 +407,18 @@ private struct LibraryDetailPane: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
         )
+    }
+
+    private func summaryIdleMessage(for item: RecordingLibraryItem) -> (systemImage: String, message: String) {
+        if item.canRemix {
+            return ("waveform.badge.plus", "Create a mix before summarizing.")
+        }
+
+        if item.hasMissingFiles {
+            return ("exclamationmark.triangle", "Mixdown file is missing.")
+        }
+
+        return ("text.badge.plus", "No summary saved yet.")
     }
 
     private func fileStatus(_ item: RecordingLibraryItem) -> some View {
