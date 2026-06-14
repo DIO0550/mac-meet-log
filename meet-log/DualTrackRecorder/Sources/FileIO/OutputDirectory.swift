@@ -25,8 +25,12 @@ struct OutputDirectory {
         let timestamp = Self.timestampFormatter.string(from: date)
         let sessionDirectory = rootDirectory.appendingPathComponent(timestamp, isDirectory: true)
 
+        guard !fileManager.fileExists(atPath: sessionDirectory.path) else {
+            throw RecorderError.outputFailed("Recording session directory already exists: \(timestamp)")
+        }
+
         do {
-            try fileManager.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: sessionDirectory, withIntermediateDirectories: false)
         } catch {
             throw RecorderError.outputFailed("Could not create recording session directory: \(error.localizedDescription)")
         }

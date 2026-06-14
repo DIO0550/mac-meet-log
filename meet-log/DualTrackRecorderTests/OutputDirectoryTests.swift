@@ -37,4 +37,18 @@ struct OutputDirectoryTests {
         #expect(fileSet.systemAudioURL.deletingLastPathComponent() == sessionDirectoryURL)
         #expect(fileSet.microphoneURL.deletingLastPathComponent() == sessionDirectoryURL)
     }
+
+    @Test func duplicateSessionDirectoryThrowsInsteadOfReusingFolder() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OutputDirectoryTests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let outputDirectory = OutputDirectory(url: rootURL)
+        let date = Date(timeIntervalSince1970: 1_704_111_605)
+
+        _ = try outputDirectory.fileSet(for: date)
+
+        #expect(throws: RecorderError.self) {
+            _ = try outputDirectory.fileSet(for: date)
+        }
+    }
 }
