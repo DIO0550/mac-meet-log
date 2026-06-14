@@ -154,8 +154,6 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
             return nil
         }
 
-        let createdAt = Self.date(from: stem)
-            ?? ((try? fileManager.attributesOfItem(atPath: mixdownURL.path)[.creationDate] as? Date) ?? .now)
         let existence = RecordingLibraryFileExistence(
             mixdownExists: mixdownExists,
             systemAudioExists: systemAudioExists,
@@ -164,6 +162,9 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
         let durationURL = mixdownExists
             ? mixdownURL
             : (systemAudioURL ?? microphoneURL)
+        let createdAt = Self.date(from: stem)
+            ?? durationURL.flatMap { try? fileManager.attributesOfItem(atPath: $0.path)[.creationDate] as? Date }
+            ?? .now
 
         self.init(
             id: stem,

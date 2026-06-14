@@ -55,6 +55,25 @@ struct RecordingLibraryTests {
     }
 
     @MainActor
+    @Test func sourceOnlyItemUsesExistingTrackCreationDateWhenStemIsNotParseable() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let systemURL = directoryURL.appendingPathComponent("meeting_audio_system.m4a")
+        let expectedDate = Date(timeIntervalSince1970: 1_800_000_000)
+        try Data().write(to: systemURL)
+        try FileManager.default.setAttributes([.creationDate: expectedDate], ofItemAtPath: systemURL.path)
+
+        let item = RecordingLibraryItem(
+            stem: "meeting_audio",
+            directoryURL: directoryURL,
+            directoryContents: Set(["meeting_audio_system.m4a"]),
+            durationProvider: FixedDurationProvider(duration: nil)
+        )
+
+        #expect(item?.createdAt == expectedDate)
+        #expect(item?.mixdownStatus == .needsMix)
+    }
+
+    @MainActor
     @Test func restoresSessionFolderMixdowns() async throws {
         let directoryURL = try makeTemporaryDirectory()
         let sessionDirectoryURL = directoryURL.appendingPathComponent("2026-05-19_13-00-00", isDirectory: true)
