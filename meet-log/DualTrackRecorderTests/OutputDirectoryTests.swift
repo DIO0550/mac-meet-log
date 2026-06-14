@@ -8,7 +8,7 @@ struct OutputDirectoryTests {
         #expect(OutputDirectory.defaultURL.deletingLastPathComponent().lastPathComponent == RecordingStorage.applicationFolderName)
     }
 
-    @Test func createsMeetLogDirectoryAndNamesFilesByTimestamp() throws {
+    @Test func createsSessionDirectoryAndNamesFilesByTimestamp() throws {
         let rootURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("OutputDirectoryTests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -25,10 +25,30 @@ struct OutputDirectoryTests {
         ))!
 
         let fileSet = try outputDirectory.fileSet(for: date)
+        let sessionDirectoryURL = rootURL.appendingPathComponent("2024-01-01_12-00-05", isDirectory: true)
 
         #expect(FileManager.default.fileExists(atPath: rootURL.path))
+        #expect(FileManager.default.fileExists(atPath: sessionDirectoryURL.path))
+        #expect(fileSet.sessionDirectoryURL == sessionDirectoryURL)
         #expect(fileSet.mixdownURL.lastPathComponent == "2024-01-01_12-00-05_mix.m4a")
         #expect(fileSet.systemAudioURL.lastPathComponent == "2024-01-01_12-00-05_system.m4a")
         #expect(fileSet.microphoneURL.lastPathComponent == "2024-01-01_12-00-05_microphone.m4a")
+        #expect(fileSet.mixdownURL.deletingLastPathComponent() == sessionDirectoryURL)
+        #expect(fileSet.systemAudioURL.deletingLastPathComponent() == sessionDirectoryURL)
+        #expect(fileSet.microphoneURL.deletingLastPathComponent() == sessionDirectoryURL)
+    }
+
+    @Test func duplicateSessionDirectoryThrowsInsteadOfReusingFolder() throws {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("OutputDirectoryTests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let outputDirectory = OutputDirectory(url: rootURL)
+        let date = Date(timeIntervalSince1970: 1_704_111_605)
+
+        _ = try outputDirectory.fileSet(for: date)
+
+        #expect(throws: RecorderError.self) {
+            _ = try outputDirectory.fileSet(for: date)
+        }
     }
 }

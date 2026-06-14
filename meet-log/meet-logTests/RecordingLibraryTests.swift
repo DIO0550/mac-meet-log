@@ -23,10 +23,12 @@ struct RecordingLibraryTests {
         #expect(item?.mixdownURL == mixdownURL)
         #expect(item?.systemAudioURL == systemURL)
         #expect(item?.microphoneURL == nil)
+        #expect(item?.mixdownStatus == .mixed)
+        #expect(item?.canRemix == false)
     }
 
     @MainActor
-    @Test func ignoresNonMixdownFilesAndSortsNewestFirst() async throws {
+    @Test func restoresFlatMixdownsAndSourceOnlyRecordingsAndSortsNewestFirst() async throws {
         let directoryURL = try makeTemporaryDirectory()
         try Data().write(to: directoryURL.appendingPathComponent("2026-05-19_09-00-00_mix.m4a"))
         try Data().write(to: directoryURL.appendingPathComponent("2026-05-19_11-00-00_mix.m4a"))
@@ -40,8 +42,103 @@ struct RecordingLibraryTests {
 
         let items = try await store.recordings()
 
-        #expect(items.map { $0.id } == ["2026-05-19_11-00-00", "2026-05-19_09-00-00"])
-        #expect(items.first?.sourceSummary == "Microphone only")
+        #expect(items.map { $0.id } == [
+            "2026-05-19_12-00-00",
+            "2026-05-19_11-00-00",
+            "2026-05-19_09-00-00"
+        ])
+        #expect(items[0].mixdownStatus == .needsMix)
+        #expect(items[0].canRemix)
+        #expect(items[0].sourceSummary == "System audio only")
+        #expect(items[1].mixdownStatus == .mixed)
+        #expect(items[1].sourceSummary == "Microphone only")
+    }
+
+    @MainActor
+    @Test func sourceOnlyItemUsesExistingTrackCreationDateWhenStemIsNotParseable() throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let systemURL = directoryURL.appendingPathComponent("meeting_audio_system.m4a")
+        let expectedDate = Date(timeIntervalSince1970: 1_800_000_000)
+        try Data().write(to: systemURL)
+        try FileManager.default.setAttributes([.creationDate: expectedDate], ofItemAtPath: systemURL.path)
+
+        let item = RecordingLibraryItem(
+            stem: "meeting_audio",
+            directoryURL: directoryURL,
+            directoryContents: Set(["meeting_audio_system.m4a"]),
+            durationProvider: FixedDurationProvider(duration: nil)
+        )
+
+        #expect(item?.createdAt == expectedDate)
+        #expect(item?.mixdownStatus == .needsMix)
+    }
+
+    @MainActor
+    @Test func restoresSessionFolderMixdowns() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let sessionDirectoryURL = directoryURL.appendingPathComponent("2026-05-19_13-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectoryURL, withIntermediateDirectories: true)
+        try Data().write(to: sessionDirectoryURL.appendingPathComponent("2026-05-19_13-00-00_mix.m4a"))
+        try Data().write(to: sessionDirectoryURL.appendingPathComponent("2026-05-19_13-00-00_system.m4a"))
+        try Data().write(to: sessionDirectoryURL.appendingPathComponent("2026-05-19_13-00-00_microphone.m4a"))
+
+        let store = OutputDirectoryRecordingLibraryStore(
+            outputDirectoryURL: directoryURL,
+            durationProvider: FixedDurationProvider(duration: .seconds(90))
+        )
+
+        let items = try await store.recordings()
+
+        #expect(items.map { $0.id } == ["2026-05-19_13-00-00"])
+        #expect(items.first?.sessionDirectoryURL.standardizedFileURL == sessionDirectoryURL.standardizedFileURL)
+        #expect(items.first?.mixdownStatus == .mixed)
+        #expect(items.first?.sourceSummary == "System audio + microphone")
+        #expect(items.first?.durationText == "1 min 30 sec")
+    }
+
+    @MainActor
+    @Test func sessionFolderItemWinsWhenFlatItemHasSameID() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let sessionDirectoryURL = directoryURL.appendingPathComponent("2026-05-19_13-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: sessionDirectoryURL, withIntermediateDirectories: true)
+        try Data().write(to: directoryURL.appendingPathComponent("2026-05-19_13-00-00_mix.m4a"))
+        try Data().write(to: sessionDirectoryURL.appendingPathComponent("2026-05-19_13-00-00_mix.m4a"))
+        try Data().write(to: sessionDirectoryURL.appendingPathComponent("2026-05-19_13-00-00_system.m4a"))
+        try Data().write(to: sessionDirectoryURL.appendingPathComponent("2026-05-19_13-00-00_microphone.m4a"))
+
+        let store = OutputDirectoryRecordingLibraryStore(
+            outputDirectoryURL: directoryURL,
+            durationProvider: FixedDurationProvider(duration: nil)
+        )
+
+        let items = try await store.recordings()
+
+        #expect(items.count == 1)
+        #expect(items.first?.sessionDirectoryURL.standardizedFileURL == sessionDirectoryURL.standardizedFileURL)
+        #expect(items.first?.sourceSummary == "System audio + microphone")
+    }
+
+    @MainActor
+    @Test func unreadableSessionFolderDoesNotFailLibraryLoad() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let readableDirectoryURL = directoryURL.appendingPathComponent("2026-05-19_14-00-00", isDirectory: true)
+        let unreadableDirectoryURL = directoryURL.appendingPathComponent("2026-05-19_15-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: readableDirectoryURL, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: unreadableDirectoryURL, withIntermediateDirectories: true)
+        try Data().write(to: readableDirectoryURL.appendingPathComponent("2026-05-19_14-00-00_mix.m4a"))
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: unreadableDirectoryURL.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: unreadableDirectoryURL.path)
+        }
+
+        let store = OutputDirectoryRecordingLibraryStore(
+            outputDirectoryURL: directoryURL,
+            durationProvider: FixedDurationProvider(duration: nil)
+        )
+
+        let items = try await store.recordings()
+
+        #expect(items.map { $0.id } == ["2026-05-19_14-00-00"])
     }
 
     @MainActor
@@ -83,6 +180,75 @@ struct RecordingLibraryTests {
         try await Task.sleep(for: .milliseconds(50))
 
         #expect(viewModel.selectedItem == older)
+    }
+
+    @MainActor
+    @Test func viewModelDoesNotRemixWhenLibraryLoads() async throws {
+        let item = makeItem(id: "2026-05-19_12-00-00", mixdownExists: false, systemAudioExists: true)
+        let mixdownService = FakeRecordingLibraryMixdownService(result: .success(item.mixdownURL))
+        let viewModel = LibraryViewModel(
+            store: FakeRecordingLibraryStore(items: [item]),
+            transcriptionService: FakeAudioTranscriptionService(result: .success(makeTranscript())),
+            summaryService: FakeTranscriptSummaryService(result: .summarized(makeSummary())),
+            summaryStore: FakeMeetingSummaryStore(summary: nil),
+            mixdownService: mixdownService
+        )
+
+        await viewModel.load()
+
+        #expect(viewModel.selectedItem == item)
+        #expect(mixdownService.exportCallCount == 0)
+    }
+
+    @MainActor
+    @Test func viewModelRemixesSelectedItemAndRefreshesLibrary() async throws {
+        let item = makeItem(id: "2026-05-19_12-00-00", mixdownExists: false, systemAudioExists: true)
+        let mixedItem = makeItem(id: "2026-05-19_12-00-00", mixdownExists: true, systemAudioExists: true)
+        let store = SequenceRecordingLibraryStore(results: [[item], [mixedItem]])
+        let mixdownService = FakeRecordingLibraryMixdownService(result: .success(item.mixdownURL))
+        let viewModel = LibraryViewModel(
+            store: store,
+            transcriptionService: FakeAudioTranscriptionService(result: .success(makeTranscript())),
+            summaryService: FakeTranscriptSummaryService(result: .summarized(makeSummary())),
+            summaryStore: FakeMeetingSummaryStore(summary: nil),
+            mixdownService: mixdownService
+        )
+
+        await viewModel.load()
+        viewModel.remixSelectedItem()
+        try await waitUntil { mixdownService.exportCallCount == 1 && viewModel.selectedItem == mixedItem }
+
+        #expect(mixdownService.requestedSystemAudioURL == item.systemAudioURL)
+        #expect(mixdownService.requestedMicrophoneURL == nil)
+        #expect(mixdownService.requestedDestinationURL == item.mixdownURL)
+        #expect(store.recordingsCallCount == 2)
+        #expect(viewModel.remixState == .idle)
+    }
+
+    @MainActor
+    @Test func viewModelKeepsItemAndReportsFailureWhenRemixFails() async throws {
+        let item = makeItem(id: "2026-05-19_12-00-00", mixdownExists: false, systemAudioExists: true)
+        let expectedError = RecordingLibraryMixdownTestError.failed
+        let mixdownService = FakeRecordingLibraryMixdownService(result: .failure(expectedError))
+        let viewModel = LibraryViewModel(
+            store: FakeRecordingLibraryStore(items: [item]),
+            transcriptionService: FakeAudioTranscriptionService(result: .success(makeTranscript())),
+            summaryService: FakeTranscriptSummaryService(result: .summarized(makeSummary())),
+            summaryStore: FakeMeetingSummaryStore(summary: nil),
+            mixdownService: mixdownService
+        )
+
+        await viewModel.load()
+        viewModel.remixSelectedItem()
+        try await waitUntil {
+            if case let .failed(id, message) = viewModel.remixState {
+                return id == item.id && message == expectedError.localizedDescription
+            }
+
+            return false
+        }
+
+        #expect(viewModel.selectedItem == item)
     }
 
     @MainActor
@@ -196,20 +362,31 @@ struct RecordingLibraryTests {
         return url
     }
 
-    private func makeItem(id: String) -> RecordingLibraryItem {
-        RecordingLibraryItem(
+    private func makeItem(
+        id: String,
+        mixdownExists: Bool = true,
+        systemAudioExists: Bool = false,
+        microphoneExists: Bool = false
+    ) -> RecordingLibraryItem {
+        let directoryURL = URL(fileURLWithPath: "/tmp/\(id)", isDirectory: true)
+        let systemAudioURL = systemAudioExists ? directoryURL.appendingPathComponent("\(id)_system.m4a") : nil
+        let microphoneURL = microphoneExists ? directoryURL.appendingPathComponent("\(id)_microphone.m4a") : nil
+
+        return RecordingLibraryItem(
             id: id,
             title: id,
             createdAt: Date(timeIntervalSince1970: 0),
             duration: .seconds(60),
-            mixdownURL: URL(fileURLWithPath: "/tmp/\(id)_mix.m4a"),
-            systemAudioURL: nil,
-            microphoneURL: nil,
+            mixdownURL: directoryURL.appendingPathComponent("\(id)_mix.m4a"),
+            systemAudioURL: systemAudioURL,
+            microphoneURL: microphoneURL,
             fileExistence: RecordingLibraryFileExistence(
-                mixdownExists: true,
-                systemAudioExists: false,
-                microphoneExists: false
-            )
+                mixdownExists: mixdownExists,
+                systemAudioExists: systemAudioExists,
+                microphoneExists: microphoneExists
+            ),
+            sessionDirectoryURL: directoryURL,
+            mixdownStatus: mixdownExists ? .mixed : (systemAudioExists || microphoneExists ? .needsMix : .unavailable)
         )
     }
 }
@@ -279,6 +456,90 @@ private struct FakeTranscriptSummaryService: TranscriptSummaryService {
 
     func summarize(_ transcript: TranscriptResult) async -> TranscriptSummaryResult {
         result
+    }
+}
+
+private enum RecordingLibraryMixdownTestError: Error, LocalizedError {
+    case failed
+
+    var errorDescription: String? {
+        "Mix failed"
+    }
+}
+
+private final class FakeRecordingLibraryMixdownService: RecordingLibraryMixdownServicing, @unchecked Sendable {
+    private let lock = NSLock()
+    private let result: Result<URL, Error>
+    private var exportCallCountValue = 0
+    private var requestedSystemAudioURLValue: URL?
+    private var requestedMicrophoneURLValue: URL?
+    private var requestedDestinationURLValue: URL?
+
+    init(result: Result<URL, Error>) {
+        self.result = result
+    }
+
+    var exportCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return exportCallCountValue
+    }
+
+    var requestedSystemAudioURL: URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestedSystemAudioURLValue
+    }
+
+    var requestedMicrophoneURL: URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestedMicrophoneURLValue
+    }
+
+    var requestedDestinationURL: URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        return requestedDestinationURLValue
+    }
+
+    func export(systemAudioURL: URL?, microphoneURL: URL?, destinationURL: URL) async throws -> URL {
+        lock.lock()
+        exportCallCountValue += 1
+        requestedSystemAudioURLValue = systemAudioURL
+        requestedMicrophoneURLValue = microphoneURL
+        requestedDestinationURLValue = destinationURL
+        lock.unlock()
+
+        return try result.get()
+    }
+}
+
+private final class SequenceRecordingLibraryStore: RecordingLibraryStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var results: [[RecordingLibraryItem]]
+    private var recordingsCallCountValue = 0
+
+    init(results: [[RecordingLibraryItem]]) {
+        self.results = results
+    }
+
+    var recordingsCallCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordingsCallCountValue
+    }
+
+    func recordings() async throws -> [RecordingLibraryItem] {
+        lock.lock()
+        defer { lock.unlock() }
+        recordingsCallCountValue += 1
+
+        guard results.count > 1 else {
+            return results.first ?? []
+        }
+
+        return results.removeFirst()
     }
 }
 

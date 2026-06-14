@@ -47,27 +47,13 @@ struct OutputDirectoryRecordingLibraryStore: RecordingLibraryStoring {
             throw RecordingLibraryStoreError.outputDirectoryUnavailable("The recording output path is not a folder.")
         }
 
-        let fileURLs: [URL]
-        do {
-            fileURLs = try fileManager.contentsOfDirectory(
-                at: outputDirectoryURL,
-                includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey],
-                options: [.skipsHiddenFiles]
-            )
-        } catch {
-            throw RecordingLibraryStoreError.outputDirectoryUnavailable(error.localizedDescription)
-        }
-
-        let fileNames = Set(fileURLs.map(\.lastPathComponent))
-        return fileURLs
-            .compactMap { url in
-                RecordingLibraryItem(
-                    mixdownURL: url,
-                    directoryContents: fileNames,
-                    fileManager: fileManager,
-                    durationProvider: durationProvider
-                )
+        let flatItems = try sessionItems(in: outputDirectoryURL)
+        let folderItems = try childDirectoryURLs(in: outputDirectoryURL)
+            .flatMap { directoryURL in
+                (try? sessionItems(in: directoryURL)) ?? []
             }
+
+        return mergedItems(flatItems + folderItems)
             .sorted { lhs, rhs in
                 if lhs.createdAt == rhs.createdAt {
                     return lhs.title < rhs.title
@@ -75,6 +61,69 @@ struct OutputDirectoryRecordingLibraryStore: RecordingLibraryStoring {
 
                 return lhs.createdAt > rhs.createdAt
             }
+    }
+
+    private func sessionItems(in directoryURL: URL) throws -> [RecordingLibraryItem] {
+        let fileURLs = try contentsOfDirectory(at: directoryURL)
+            .filter { url in
+                var isDirectory: ObjCBool = false
+                return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
+                    && !isDirectory.boolValue
+            }
+        let fileNames = Set(fileURLs.map(\.lastPathComponent))
+        let stems = Set(fileNames.compactMap(RecordingLibraryItem.stem(fromFileName:)))
+
+        return stems.compactMap { stem in
+            RecordingLibraryItem(
+                stem: stem,
+                directoryURL: directoryURL,
+                directoryContents: fileNames,
+                fileManager: fileManager,
+                durationProvider: durationProvider
+            )
+        }
+    }
+
+    private func childDirectoryURLs(in directoryURL: URL) throws -> [URL] {
+        try contentsOfDirectory(at: directoryURL)
+            .filter { url in
+                var isDirectory: ObjCBool = false
+                return fileManager.fileExists(atPath: url.path, isDirectory: &isDirectory)
+                    && isDirectory.boolValue
+            }
+    }
+
+    private func contentsOfDirectory(at directoryURL: URL) throws -> [URL] {
+        do {
+            return try fileManager.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: [.creationDateKey, .contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+        } catch {
+            throw RecordingLibraryStoreError.outputDirectoryUnavailable(error.localizedDescription)
+        }
+    }
+
+    private func mergedItems(_ items: [RecordingLibraryItem]) -> [RecordingLibraryItem] {
+        var ids: [RecordingLibraryItem.ID] = []
+        var itemsByID: [RecordingLibraryItem.ID: RecordingLibraryItem] = [:]
+        var result: [RecordingLibraryItem] = []
+
+        for item in items {
+            if itemsByID[item.id] == nil {
+                ids.append(item.id)
+            }
+            itemsByID[item.id] = item
+        }
+
+        for id in ids {
+            if let item = itemsByID[id] {
+                result.append(item)
+            }
+        }
+
+        return result
     }
 }
 
