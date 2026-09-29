@@ -18,7 +18,12 @@ struct DualTrackRecorderOrchestrationTests {
         #expect(harness.microphoneCapture.stopCount == 1)
         #expect(result.systemAudioURL == harness.writers[.systemAudio]?.url)
         #expect(result.microphoneURL == harness.writers[.microphone]?.url)
-        #expect(result.mixdownURL == harness.mixdownExporter.requestedDestinationURL)
+        guard let requestedDestinationURL = harness.mixdownExporter.requestedDestinationURL else {
+            Issue.record("Expected a mixdown destination request.")
+            return
+        }
+
+        #expect(result.mixdown == .mixed(requestedDestinationURL))
         #expect(events.contains(.stateChanged(.preparing)))
         #expect(events.contains(.stateChanged(.finalizing)))
 
@@ -29,6 +34,25 @@ struct DualTrackRecorderOrchestrationTests {
         }
 
         #expect(completedResult == result)
+    }
+
+    @Test func mixdownFailureCompletesWithSavedSourceTracks() async throws {
+        let harness = FakeRecorderHarness(baseURL: temporaryOutputURL())
+        let expectedError = RecorderError.mixdownFailed("format mismatch")
+        harness.mixdownExporter.exportError = expectedError
+        let recorder = DualTrackRecorder(configuration: configuration(), dependencies: harness.dependencies)
+        let eventsTask = collectEvents(from: recorder.events, count: 4)
+
+        try await recorder.start(
+            sources: RecordingSources(systemAudioEnabled: true, microphoneEnabled: true)
+        )
+        let result = try await recorder.stop()
+        let events = await eventsTask.value
+
+        #expect(result.systemAudioURL == harness.writers[.systemAudio]?.url)
+        #expect(result.microphoneURL == harness.writers[.microphone]?.url)
+        #expect(result.mixdown == .failed(expectedError))
+        #expect(events.last == .stateChanged(.complete(result)))
     }
 
     @Test func pauseResumePausesAndResumesWriters() async throws {

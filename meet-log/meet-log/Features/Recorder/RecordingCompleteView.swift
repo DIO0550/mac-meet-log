@@ -9,12 +9,12 @@ struct RecordingCompleteView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
-                Image(systemName: "checkmark.circle.fill")
+                Image(systemName: completion.warningMessage == nil ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     .font(.title3)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(completion.warningMessage == nil ? Color.green : Color.orange)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Recording Saved")
+                    Text(completion.warningMessage == nil ? "Recording Saved" : "Recording Saved — Mix Pending")
                         .font(.headline)
 
                     Text(completion.duration.recorderDisplayString)
@@ -39,17 +39,30 @@ struct RecordingCompleteView: View {
                 .truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            if let warningMessage = completion.warningMessage {
+                Text(warningMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Button(action: revealAction) {
-                Label("Show in Finder", systemImage: "folder")
+                Label(
+                    completion.warningMessage == nil ? "Show Mix in Finder" : "Show Source in Finder",
+                    systemImage: "folder"
+                )
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.bordered)
+            .disabled(completion.revealURL == nil)
         }
         .padding(14)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.green.opacity(0.28), lineWidth: 1)
+                .stroke(
+                    (completion.warningMessage == nil ? Color.green : Color.orange).opacity(0.28),
+                    lineWidth: 1
+                )
         )
     }
 }
