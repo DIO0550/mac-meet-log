@@ -33,16 +33,9 @@ jobs:
       - name: Show failed test details
         if: failure()
         run: |
+          cat /tmp/mixdown-export-error.txt || true
           xcrun xcresulttool get test-results activities \
             --path TestResults.xcresult \
             --test-id 'MixdownExporterIntegrationTests/mixesFortyEightKilohertzStereoAndFortyFourKilohertzMono()' \
             --compact > MixdownActivities.json
           cat MixdownActivities.json
-          PAYLOAD_ID=$(python3 -c 'import json; print(json.load(open("MixdownActivities.json"))["testRuns"][0]["activities"][0]["attachments"][0]["payloadId"])')
-          xcrun xcresulttool export object \
-            --legacy \
-            --path TestResults.xcresult \
-            --id "$PAYLOAD_ID" \
-            --type file \
-            --output-path MixdownCrash.ips
-          cat MixdownCrash.ips

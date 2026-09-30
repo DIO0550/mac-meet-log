@@ -287,7 +287,11 @@ struct MixdownExporterIntegrationTests {
                 destinationURL: destinationURL
             )
         } catch {
-            fatalError("MIXDOWN_EXPORT_ERROR: \(error.localizedDescription)")
+            let diagnosticsURL = URL(fileURLWithPath: "/tmp/mixdown-export-error.txt")
+            if !FileManager.default.fileExists(atPath: diagnosticsURL.path) {
+                try? error.localizedDescription.write(to: diagnosticsURL, atomically: true, encoding: .utf8)
+            }
+            throw error
         }
 
         #expect(result == destinationURL)
