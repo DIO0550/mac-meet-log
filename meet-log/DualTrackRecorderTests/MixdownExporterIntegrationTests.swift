@@ -4,6 +4,7 @@ import Foundation
 import Testing
 @testable import DualTrackRecorder
 
+@Suite(.serialized)
 struct MixdownExporterIntegrationTests {
     @Test func mixesFortyEightKilohertzStereoAndFortyFourKilohertzMono() async throws {
         let directory = try TemporaryAudioDirectory.create()
