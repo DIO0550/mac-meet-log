@@ -277,11 +277,19 @@ struct MixdownExporterIntegrationTests {
         microphoneURL: URL?
     ) async throws -> AudioFixture.Inspection {
         let destinationURL = directory.url.appendingPathComponent("mix.m4a")
-        let result = try await MixdownExporter().export(
-            systemAudioURL: systemAudioURL,
-            microphoneURL: microphoneURL,
-            destinationURL: destinationURL
-        )
+        let result: URL
+
+        do {
+            result = try await MixdownExporter().export(
+                systemAudioURL: systemAudioURL,
+                microphoneURL: microphoneURL,
+                destinationURL: destinationURL
+            )
+        } catch {
+            let diagnostic = "MIXDOWN_EXPORT_ERROR: \(error.localizedDescription)\n"
+            FileHandle.standardError.write(Data(diagnostic.utf8))
+            throw error
+        }
 
         #expect(result == destinationURL)
         return try await AudioFixture.inspect(url: result)
