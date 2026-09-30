@@ -27,15 +27,4 @@ jobs:
             -project meet-log/meet-log.xcodeproj \
             -scheme meet-log \
             -destination 'platform=macOS' \
-            -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO
-
-      - name: Show failed test details
-        if: failure()
-        run: |
-          cat /tmp/mixdown-export-error.txt || true
-          xcrun xcresulttool get test-results activities \
-            --path TestResults.xcresult \
-            --test-id 'MixdownExporterIntegrationTests/mixesFortyEightKilohertzStereoAndFortyFourKilohertzMono()' \
-            --compact > MixdownActivities.json
-          cat MixdownActivities.json
