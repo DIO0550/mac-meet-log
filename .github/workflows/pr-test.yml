@@ -36,3 +36,6 @@ jobs:
           xcrun xcresulttool get test-results tests \
             --path TestResults.xcresult \
             --format json
+          xcrun xcresulttool get test-results activities \
+            --path TestResults.xcresult \
+            --format json
