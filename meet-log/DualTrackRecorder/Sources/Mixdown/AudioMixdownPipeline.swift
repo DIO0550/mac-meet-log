@@ -200,6 +200,7 @@ struct AudioMixdownPipeline {
 
 fileprivate struct SourceAsset {
     let url: URL
+    let asset: AVURLAsset
     let track: AVAssetTrack
     let trackTimeRange: CMTimeRange
     let sampleRate: Double
@@ -284,6 +285,7 @@ fileprivate enum SourceProbe {
             let flags = streamDescription.pointee.mFormatFlags
             let source = SourceAsset(
                 url: url,
+                asset: asset,
                 track: track,
                 trackTimeRange: timeRange,
                 sampleRate: streamDescription.pointee.mSampleRate,
