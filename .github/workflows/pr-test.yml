@@ -27,4 +27,12 @@ jobs:
             -project meet-log/meet-log.xcodeproj \
             -scheme meet-log \
             -destination 'platform=macOS' \
+            -resultBundlePath TestResults.xcresult \
             CODE_SIGNING_ALLOWED=NO
+
+      - name: Show failed test details
+        if: failure()
+        run: |
+          xcrun xcresulttool get test-results tests \
+            --path TestResults.xcresult \
+            --format json
