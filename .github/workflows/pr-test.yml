@@ -38,4 +38,5 @@ jobs:
             --format json
           xcrun xcresulttool get test-results activities \
             --path TestResults.xcresult \
-            --format json
+            --test-id 'MixdownExporterIntegrationTests/mixesFortyEightKilohertzStereoAndFortyFourKilohertzMono()' \
+            --compact
