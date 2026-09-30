@@ -1,7 +1,7 @@
 import AVFoundation
 import Foundation
 
-struct MixdownExporter: MixdownExporting {
+struct MixdownExporter: MixdownExporting, @unchecked Sendable {
     private let pipeline: AudioMixdownPipeline
     private let fileManager: FileManager
 
@@ -49,19 +49,20 @@ struct MixdownExporter: MixdownExporting {
     private func validateAudio(at url: URL) async throws {
         let file = try AVAudioFile(forReading: url)
         let fileFormat = file.fileFormat
+        let formatID = fileFormat.streamDescription.pointee.mFormatID
         let asset = AVURLAsset(url: url)
         let tracks = try await asset.loadTracks(withMediaType: .audio)
         let duration = try await asset.load(.duration)
 
         guard tracks.count == 1,
               duration > .zero,
-              fileFormat.formatID == kAudioFormatMPEG4AAC,
+              formatID == kAudioFormatMPEG4AAC,
               fileFormat.sampleRate == AudioMixdownPipeline.Configuration.canonical.sampleRate,
               fileFormat.channelCount == AVAudioChannelCount(
                   AudioMixdownPipeline.Configuration.canonical.channelCount
               ) else {
             throw MixdownValidationError.nonCanonicalOutput(
-                formatID: fileFormat.formatID,
+                formatID: formatID,
                 sampleRate: fileFormat.sampleRate,
                 channelCount: fileFormat.channelCount,
                 duration: duration

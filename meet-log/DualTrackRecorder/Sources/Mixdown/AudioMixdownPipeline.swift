@@ -409,7 +409,7 @@ private final class SampleBufferTransfer: @unchecked Sendable {
     }
 
     private func start() async throws {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             lock.lock()
             if isFinished {
                 lock.unlock()

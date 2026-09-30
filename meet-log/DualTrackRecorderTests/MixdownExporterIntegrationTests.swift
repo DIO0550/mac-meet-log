@@ -358,7 +358,7 @@ private enum AudioFixture {
         return Inspection(
             sampleRate: file.fileFormat.sampleRate,
             channelCount: file.fileFormat.channelCount,
-            formatID: file.fileFormat.formatID,
+            formatID: file.fileFormat.streamDescription.pointee.mFormatID,
             duration: duration.seconds
         )
     }
