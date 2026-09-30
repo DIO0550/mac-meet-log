@@ -370,16 +370,16 @@ private enum AudioFixture {
         layoutTag: AudioChannelLayoutTag?
     ) throws -> AVAudioFormat {
         if let layoutTag {
-            guard let layout = AVAudioChannelLayout(layoutTag: layoutTag),
-                  let format = AVAudioFormat(
-                      commonFormat: .pcmFormatFloat32,
-                      sampleRate: sampleRate,
-                      interleaved: interleaved,
-                      channelLayout: layout
-                  ) else {
+            guard let layout = AVAudioChannelLayout(layoutTag: layoutTag) else {
                 throw AudioFixtureError.couldNotCreateFormat
             }
-            return format
+
+            return AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: sampleRate,
+                interleaved: interleaved,
+                channelLayout: layout
+            )
         }
 
         guard let format = AVAudioFormat(
