@@ -286,9 +286,7 @@ struct MixdownExporterIntegrationTests {
                 destinationURL: destinationURL
             )
         } catch {
-            let diagnostic = "MIXDOWN_EXPORT_ERROR: \(error.localizedDescription)\n"
-            FileHandle.standardError.write(Data(diagnostic.utf8))
-            throw error
+            fatalError("MIXDOWN_EXPORT_ERROR: \(error.localizedDescription)")
         }
 
         #expect(result == destinationURL)
