@@ -38,3 +38,11 @@ jobs:
             --test-id 'MixdownExporterIntegrationTests/mixesFortyEightKilohertzStereoAndFortyFourKilohertzMono()' \
             --compact > MixdownActivities.json
           cat MixdownActivities.json
+          PAYLOAD_ID=$(python3 -c 'import json; print(json.load(open("MixdownActivities.json"))["testRuns"][0]["activities"][0]["attachments"][0]["payloadId"])')
+          xcrun xcresulttool export object \
+            --legacy \
+            --path TestResults.xcresult \
+            --id "$PAYLOAD_ID" \
+            --type file \
+            --output-path MixdownCrash.ips
+          cat MixdownCrash.ips
