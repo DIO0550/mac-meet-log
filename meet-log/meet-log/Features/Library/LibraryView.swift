@@ -437,6 +437,8 @@ private struct LibraryDetailPane: View {
                 SummaryMessageRow(systemImage: "waveform", message: "Transcribing available audio tracks...")
             case .summarizing:
                 SummaryMessageRow(systemImage: "text.magnifyingglass", message: "Generating summary...")
+            case let .summaryProgress(progress):
+                SummaryMessageRow(systemImage: "text.magnifyingglass", message: progress.message)
             case let .summarized(summary):
                 MeetingSummaryView(summary: summary)
             case let .unavailable(message):

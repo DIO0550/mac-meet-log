@@ -52,6 +52,22 @@ struct AudioProcessingTests {
         #expect(states.last == .completed(item, transcript, .summarized(summary)))
     }
 
+    @Test func summaryChunkProgressReachesJobStateWithTranscriptPreserved() async {
+        let item = makeImportedItem()
+        let transcript = makeTranscript(text: "本文")
+        let job = AudioProcessingJob(
+            importer: FakeAudioFileImporter(result: .success(item)),
+            transcriptionService: FakeAudioTranscriptionService(events: [.completed(transcript)]),
+            summaryService: ProgressReportingSummaryService()
+        )
+        let states = await collectStates(from: job.run(audioURL: sampleURL))
+        let progressState = AudioProcessingJobState.summaryProgress(item, transcript, .chunk(completed: 1, total: 3))
+        #expect(states.contains(progressState))
+        #expect(progressState.transcript == transcript)
+        #expect(progressState.importedItem == item)
+        #expect(states.contains(.summaryProgress(item, transcript, .integration(round: 1, completed: 0, total: 1))))
+    }
+
     @Test func summaryUnavailableCompletesWithTranscriptPreserved() async {
         let item = makeImportedItem()
         let transcript = makeTranscript(text: "本文")
@@ -415,5 +431,17 @@ private struct FakeTranscriptSummaryService: TranscriptSummaryService {
 
     func summarize(_ transcript: TranscriptResult) async -> TranscriptSummaryResult {
         result
+    }
+}
+
+private struct ProgressReportingSummaryService: TranscriptSummaryService {
+    func summarize(_ transcript: TranscriptResult) async -> TranscriptSummaryResult {
+        .unavailable(.modelNotReady)
+    }
+
+    func summarize(_ transcript: TranscriptResult, progress: SummaryProgressHandler) async -> TranscriptSummaryResult {
+        await progress(.chunk(completed: 1, total: 3))
+        await progress(.integration(round: 1, completed: 0, total: 1))
+        return .unavailable(.modelNotReady)
     }
 }

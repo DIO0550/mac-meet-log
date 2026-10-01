@@ -2,6 +2,13 @@ import Foundation
 
 protocol TranscriptSummaryService: Sendable {
     nonisolated func summarize(_ transcript: TranscriptResult) async -> TranscriptSummaryResult
+    nonisolated func summarize(_ transcript: TranscriptResult, progress: SummaryProgressHandler) async -> TranscriptSummaryResult
+}
+
+extension TranscriptSummaryService {
+    nonisolated func summarize(_ transcript: TranscriptResult, progress: SummaryProgressHandler) async -> TranscriptSummaryResult {
+        await summarize(transcript)
+    }
 }
 
 enum TranscriptSummaryResult: Equatable, Sendable {
@@ -34,6 +41,9 @@ enum SummaryError: Error, Equatable, LocalizedError, Sendable {
     case emptyTranscript
     case transcriptTooLong(characterCount: Int, limit: Int)
     case generationFailed(String)
+    case unsplittableWord(limit: Int)
+    case chunkFailed(index: Int, total: Int, message: String)
+    case integrationFailed(String)
     case invalidStructuredOutput
     case persistenceFailed(String)
 
@@ -45,6 +55,12 @@ enum SummaryError: Error, Equatable, LocalizedError, Sendable {
             return "The transcript is too long to summarize right now (\(characterCount) characters, limit \(limit))."
         case let .generationFailed(message):
             return "Meeting summary generation failed: \(message)"
+        case let .unsplittableWord(limit):
+            return "単語の途中で分割できない文字列が要約上限 (\(limit)文字) を超えています。"
+        case let .chunkFailed(index, total, message):
+            return "チャンク \(index) / \(total) の要約に失敗しました。部分要約は保存していません: \(message)"
+        case let .integrationFailed(message):
+            return "要約の統合に失敗しました。部分要約は保存していません: \(message)"
         case .invalidStructuredOutput:
             return "Meeting summary generation returned incomplete structured output."
         case let .persistenceFailed(message):
@@ -100,8 +116,24 @@ struct PromptedTranscriptSummaryService: TranscriptSummaryService {
     }
 
     nonisolated func summarize(_ transcript: TranscriptResult) async -> TranscriptSummaryResult {
+        await summarize(transcript, progress: { _ in })
+    }
+
+    nonisolated func summarize(_ transcript: TranscriptResult, progress: SummaryProgressHandler) async -> TranscriptSummaryResult {
         if let unavailableReason = availabilityChecker.currentAvailability().unavailableReason {
             return .unavailable(unavailableReason)
+        }
+
+        if transcript.text.trimmingCharacters(in: .whitespacesAndNewlines).count > promptBuilder.characterLimit {
+            do {
+                let summary = try await ChunkedSummaryPipeline(promptBuilder: promptBuilder, generator: generator)
+                    .summarize(transcript, progress: progress)
+                return .summarized(summary)
+            } catch let error as SummaryError {
+                return .failed(error)
+            } catch {
+                return .failed(.generationFailed(error.localizedDescription))
+            }
         }
 
         switch promptBuilder.makePrompt(for: transcript) {
