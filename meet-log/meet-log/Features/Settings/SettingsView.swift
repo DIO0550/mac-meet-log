@@ -233,7 +233,11 @@ private struct SummaryTemplateEditor: View {
             HStack {
                 Spacer()
                 Button("キャンセル") { dismiss() }
-                Button("保存") { save(template) }.buttonStyle(.borderedProminent)
+                Button("保存") {
+                    save(template)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!template.isValid)
             }
         }
         .padding(20)
