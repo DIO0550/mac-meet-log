@@ -8,7 +8,8 @@ struct SettingsView: View {
     @State private var devices: [AudioInputDevice] = []
     @State private var directoryError: String?
     @State private var microphoneError: String?
-    @State private var showingTemplate = false
+    @State private var templateEditor: SummaryTemplateEditorState?
+    @State private var templateError: String?
 
     var body: some View {
         TabView {
@@ -101,21 +102,68 @@ struct SettingsView: View {
     private var summary: some View {
         Form {
             Picker("既定のテンプレート", selection: $settings.preferences.summaryTemplateID) {
-                Text("会議ログ（標準）").tag("meeting")
-            }
-            Button("テンプレートを表示…") { showingTemplate = true }
-                .sheet(isPresented: $showingTemplate) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("会議ログ（標準）").font(.title2)
-                        Text("要約、主要トピック、アクションアイテム（担当者・期限）を日本語で整理します。")
-                        Text("標準テンプレートは読み取り専用です。")
-                            .foregroundStyle(.secondary)
-                        Button("閉じる") { showingTemplate = false }
-                    }
-                    .padding(24).frame(width: 420)
+                ForEach(settings.summaryTemplates) { template in
+                    Text(template.name).tag(template.id)
                 }
+            }
+            List(settings.summaryTemplates) { template in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(template.name)
+                        Text(template.isBuiltIn ? "組み込み・読み取り専用" : "ユーザー定義")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("複製") { duplicate(template) }
+                    Button("編集") { templateEditor = SummaryTemplateEditorState(template: template) }
+                        .disabled(template.isBuiltIn)
+                    Button("削除", role: .destructive) { delete(template) }
+                        .disabled(template.isBuiltIn)
+                }
+            }
+            .frame(height: 125)
+            Button("テンプレートを追加") {
+                templateEditor = SummaryTemplateEditorState(template: SummaryTemplate(
+                    name: "新しいテンプレート",
+                    instructions: SummaryTemplate.builtIn.instructions,
+                    outputPerspective: SummaryTemplate.builtIn.outputPerspective
+                ))
+            }
+            if let templateError {
+                Text(templateError).foregroundStyle(.red)
+            }
         }
         .formStyle(.grouped)
+        .sheet(item: $templateEditor) { editor in
+            SummaryTemplateEditor(template: editor.template) { template in
+                do {
+                    try settings.saveSummaryTemplate(template)
+                    templateError = nil
+                    templateEditor = nil
+                } catch {
+                    templateError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    private func duplicate(_ template: SummaryTemplate) {
+        do {
+            let copy = try settings.duplicateSummaryTemplate(template)
+            settings.preferences.summaryTemplateID = copy.id
+            templateError = nil
+        } catch {
+            templateError = error.localizedDescription
+        }
+    }
+
+    private func delete(_ template: SummaryTemplate) {
+        do {
+            try settings.deleteSummaryTemplate(id: template.id)
+            templateError = nil
+        } catch {
+            templateError = error.localizedDescription
+        }
     }
 
     private var directoryPath: String {
@@ -156,5 +204,43 @@ struct SettingsView: View {
         } catch {
             directoryError = error.localizedDescription
         }
+    }
+}
+
+private struct SummaryTemplateEditorState: Identifiable {
+    let template: SummaryTemplate
+    var id: String { template.id }
+}
+
+private struct SummaryTemplateEditor: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var template: SummaryTemplate
+    let save: (SummaryTemplate) -> Void
+
+    init(template: SummaryTemplate, save: @escaping (SummaryTemplate) -> Void) {
+        _template = State(initialValue: template)
+        self.save = save
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("要約テンプレート").font(.title2)
+            TextField("名前", text: $template.name)
+            Text("Instructions").font(.headline)
+            TextEditor(text: $template.instructions).frame(height: 100)
+            Text("出力観点").font(.headline)
+            TextEditor(text: $template.outputPerspective).frame(height: 100)
+            HStack {
+                Spacer()
+                Button("キャンセル") { dismiss() }
+                Button("保存") {
+                    save(template)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!template.isValid)
+            }
+        }
+        .padding(20)
+        .frame(width: 520, height: 390)
     }
 }

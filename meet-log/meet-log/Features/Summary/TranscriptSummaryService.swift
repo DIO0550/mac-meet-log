@@ -3,11 +3,24 @@ import Foundation
 protocol TranscriptSummaryService: Sendable {
     nonisolated func summarize(_ transcript: TranscriptResult) async -> TranscriptSummaryResult
     nonisolated func summarize(_ transcript: TranscriptResult, progress: SummaryProgressHandler) async -> TranscriptSummaryResult
+    nonisolated func summarize(
+        _ transcript: TranscriptResult,
+        template: SummaryTemplate,
+        progress: SummaryProgressHandler
+    ) async -> TranscriptSummaryResult
 }
 
 extension TranscriptSummaryService {
     nonisolated func summarize(_ transcript: TranscriptResult, progress: SummaryProgressHandler) async -> TranscriptSummaryResult {
         await summarize(transcript)
+    }
+
+    nonisolated func summarize(
+        _ transcript: TranscriptResult,
+        template: SummaryTemplate,
+        progress: SummaryProgressHandler
+    ) async -> TranscriptSummaryResult {
+        await summarize(transcript, progress: progress)
     }
 }
 
@@ -120,6 +133,15 @@ struct PromptedTranscriptSummaryService: TranscriptSummaryService {
     }
 
     nonisolated func summarize(_ transcript: TranscriptResult, progress: SummaryProgressHandler) async -> TranscriptSummaryResult {
+        await summarize(transcript, template: promptBuilder.template, progress: progress)
+    }
+
+    nonisolated func summarize(
+        _ transcript: TranscriptResult,
+        template: SummaryTemplate,
+        progress: SummaryProgressHandler
+    ) async -> TranscriptSummaryResult {
+        let promptBuilder = SummaryPromptBuilder(characterLimit: promptBuilder.characterLimit, template: template)
         if let unavailableReason = availabilityChecker.currentAvailability().unavailableReason {
             return .unavailable(unavailableReason)
         }
@@ -128,7 +150,7 @@ struct PromptedTranscriptSummaryService: TranscriptSummaryService {
             do {
                 let summary = try await ChunkedSummaryPipeline(promptBuilder: promptBuilder, generator: generator)
                     .summarize(transcript, progress: progress)
-                return .summarized(summary)
+                return .summarized(summary.recording(template: template))
             } catch let error as SummaryError {
                 return .failed(error)
             } catch {
@@ -139,7 +161,8 @@ struct PromptedTranscriptSummaryService: TranscriptSummaryService {
         switch promptBuilder.makePrompt(for: transcript) {
         case let .success(prompt):
             do {
-                return .summarized(try await generator.generate(prompt: prompt, transcript: transcript))
+                let summary = try await generator.generate(prompt: prompt, transcript: transcript)
+                return .summarized(summary.recording(template: template))
             } catch let error as SummaryError {
                 return .failed(error)
             } catch {

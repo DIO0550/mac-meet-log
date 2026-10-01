@@ -61,7 +61,9 @@ enum MeetingSummaryMarkdownCodec {
             metadata(
                 recordingID: recordingID,
                 createdAt: summary.createdAt,
-                transcriptSourceURL: summary.transcriptSourceURL
+                transcriptSourceURL: summary.transcriptSourceURL,
+                templateID: summary.templateID,
+                templateName: summary.templateName
             ),
             "## Summary\n\n\(summary.summary)"
         ]
@@ -101,14 +103,18 @@ enum MeetingSummaryMarkdownCodec {
             topics: decodeTopics(from: sections["Topics"]),
             actionItems: decodeActionItems(from: sections["Action Items"]),
             transcriptSourceURL: transcriptSourceURL(from: markdown),
-            createdAt: createdAt(from: markdown) ?? .now
+            createdAt: createdAt(from: markdown) ?? .now,
+            templateID: metadataValue(named: "Template ID", in: markdown),
+            templateName: metadataValue(named: "Template", in: markdown)
         )
     }
 
     private nonisolated static func metadata(
         recordingID: String,
         createdAt: Date,
-        transcriptSourceURL: URL?
+        transcriptSourceURL: URL?,
+        templateID: String?,
+        templateName: String?
     ) -> String {
         var lines = [
             "- Recording: \(recordingID)",
@@ -117,6 +123,12 @@ enum MeetingSummaryMarkdownCodec {
 
         if let transcriptSourceURL {
             lines.append("- Source: \(transcriptSourceURL.path)")
+        }
+        if let templateID {
+            lines.append("- Template ID: \(templateID)")
+        }
+        if let templateName {
+            lines.append("- Template: \(templateName)")
         }
 
         return lines.joined(separator: "\n")

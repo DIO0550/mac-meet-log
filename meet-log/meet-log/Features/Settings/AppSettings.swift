@@ -15,6 +15,7 @@ final class AppSettings: ObservableObject {
     static let shared = AppSettings()
     static let preferencesKey = "preferences.v1"
     static let directoryBookmarkKey = "recordings.directory.bookmark"
+    static let summaryTemplatesKey = "summary.templates.v1"
 
     @Published var preferences: AppPreferences {
         didSet {
@@ -24,6 +25,7 @@ final class AppSettings: ObservableObject {
         }
     }
     @Published private(set) var directoryRevision = 0
+    @Published private(set) var summaryTemplates: [SummaryTemplate]
     private let defaults: UserDefaults
     // Keep old scopes alive for recordings, playback and sidecar writes already in flight.
     private var directoryAccess: [URL: SecurityScopedDirectory] = [:]
@@ -35,6 +37,14 @@ final class AppSettings: ObservableObject {
             preferences = saved
         } else {
             preferences = AppPreferences()
+        }
+        let savedTemplates = defaults.data(forKey: Self.summaryTemplatesKey)
+            .flatMap { try? JSONDecoder().decode([SummaryTemplate].self, from: $0) } ?? []
+        summaryTemplates = [.builtIn] + savedTemplates.filter {
+            !$0.isBuiltIn && $0.id != SummaryTemplate.builtIn.id && $0.isValid
+        }
+        if !summaryTemplates.contains(where: { $0.id == preferences.summaryTemplateID }) {
+            preferences.summaryTemplateID = SummaryTemplate.builtIn.id
         }
     }
 
@@ -81,6 +91,51 @@ final class AppSettings: ObservableObject {
             return nil
         }
         return devices.first { $0.persistentUID == uid }?.id
+    }
+
+    func summaryTemplate(id: String? = nil) -> SummaryTemplate {
+        let requestedID = id ?? preferences.summaryTemplateID
+        return summaryTemplates.first { $0.id == requestedID } ?? .builtIn
+    }
+
+    func saveSummaryTemplate(_ template: SummaryTemplate) throws {
+        guard template.isValid else {
+            throw SummaryTemplateError.invalid
+        }
+        guard !template.isBuiltIn, template.id != SummaryTemplate.builtIn.id else {
+            throw SummaryTemplateError.builtInCannotBeModified
+        }
+        if let index = summaryTemplates.firstIndex(where: { $0.id == template.id }) {
+            summaryTemplates[index] = template
+        } else {
+            summaryTemplates.append(template)
+        }
+        persistSummaryTemplates()
+    }
+
+    @discardableResult
+    func duplicateSummaryTemplate(_ template: SummaryTemplate) throws -> SummaryTemplate {
+        let copy = template.duplicate()
+        try saveSummaryTemplate(copy)
+        return copy
+    }
+
+    func deleteSummaryTemplate(id: String) throws {
+        guard id != SummaryTemplate.builtIn.id else {
+            throw SummaryTemplateError.builtInCannotBeDeleted
+        }
+        summaryTemplates.removeAll { $0.id == id }
+        if preferences.summaryTemplateID == id {
+            preferences.summaryTemplateID = SummaryTemplate.builtIn.id
+        }
+        persistSummaryTemplates()
+    }
+
+    private func persistSummaryTemplates() {
+        let customTemplates = summaryTemplates.filter { !$0.isBuiltIn }
+        if let data = try? JSONEncoder().encode(customTemplates) {
+            defaults.set(data, forKey: Self.summaryTemplatesKey)
+        }
     }
 
     private func retainAccess(to url: URL) {

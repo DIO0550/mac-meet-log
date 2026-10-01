@@ -90,8 +90,13 @@ final class AudioProcessingViewModel: ObservableObject {
         state = .loading
 
         let selectedLocale = locale ?? Locale(identifier: AppSettings.shared.preferences.localeIdentifier)
+        let selectedTemplate = AppSettings.shared.summaryTemplate()
         processingTask = Task {
-            for await nextState in job.run(audioURL: audioURL, locale: selectedLocale) {
+            for await nextState in job.run(
+                audioURL: audioURL,
+                locale: selectedLocale,
+                summaryTemplate: selectedTemplate
+            ) {
                 guard processingRunID == runID else {
                     break
                 }

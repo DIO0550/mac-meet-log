@@ -48,6 +48,7 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var summaryState: SummaryState = .idle
     @Published private(set) var transcript: TranscriptResult?
     @Published private(set) var remixState: RemixState = .idle
+    @Published var selectedSummaryTemplateID = SummaryTemplate.builtIn.id
 
     private let store: RecordingLibraryStoring
     private let trackAwareTranscriptionService: TrackAwareTranscriptionService
@@ -66,6 +67,7 @@ final class LibraryViewModel: ObservableObject {
             summaryStore: MeetingSummarySidecarStore(),
             mixdownService: RecordingMixdownService()
         )
+        selectedSummaryTemplateID = AppSettings.shared.preferences.summaryTemplateID
     }
 
     convenience init(store: RecordingLibraryStoring) {
@@ -180,7 +182,7 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
-    func generateSummaryForSelectedItem() {
+    func generateSummaryForSelectedItem(template: SummaryTemplate? = nil) {
         guard let selectedItem, selectedItem.hasTranscribableAudio else {
             summaryState = .idle
             return
@@ -200,7 +202,11 @@ final class LibraryViewModel: ObservableObject {
                 self.transcript = transcript
                 try await summaryStore.save(transcript, for: item)
                 summaryState = .summarizing
-                let result = await summaryService.summarize(transcript) { [weak self] progress in
+                let selectedTemplate = template ?? SummaryTemplate.builtIn
+                let result = await summaryService.summarize(
+                    transcript,
+                    template: selectedTemplate
+                ) { [weak self] progress in
                     await self?.updateSummaryProgress(progress, for: item)
                 }
                 await handleSummaryResult(result, for: item)

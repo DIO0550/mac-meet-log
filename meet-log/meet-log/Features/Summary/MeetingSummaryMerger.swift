@@ -26,7 +26,9 @@ nonisolated enum MeetingSummaryMerger {
             topics: topics,
             actionItems: actions,
             transcriptSourceURL: summary.transcriptSourceURL,
-            createdAt: summary.createdAt
+            createdAt: summary.createdAt,
+            templateID: summary.templateID,
+            templateName: summary.templateName
         )
     }
 

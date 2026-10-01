@@ -23,6 +23,20 @@ struct FallbackTranscriptSummaryService: TranscriptSummaryService {
             return await fallback.summarize(transcript, progress: progress)
         }
     }
+
+    nonisolated func summarize(
+        _ transcript: TranscriptResult,
+        template: SummaryTemplate,
+        progress: SummaryProgressHandler
+    ) async -> TranscriptSummaryResult {
+        let result = await primary.summarize(transcript, template: template, progress: progress)
+        switch result {
+        case .summarized, .failed:
+            return result
+        case .unavailable:
+            return await fallback.summarize(transcript, template: template, progress: progress)
+        }
+    }
 }
 
 struct ExtractiveTranscriptSummaryService: TranscriptSummaryService {
@@ -58,6 +72,18 @@ struct ExtractiveTranscriptSummaryService: TranscriptSummaryService {
                 transcriptSourceURL: transcript.sourceURL
             )
         )
+    }
+
+    nonisolated func summarize(
+        _ transcript: TranscriptResult,
+        template: SummaryTemplate,
+        progress: SummaryProgressHandler
+    ) async -> TranscriptSummaryResult {
+        let result = await summarize(transcript)
+        guard case let .summarized(summary) = result else {
+            return result
+        }
+        return .summarized(summary.recording(template: template))
     }
 
     nonisolated private static func sentences(from text: String) -> [String] {

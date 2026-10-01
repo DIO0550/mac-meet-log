@@ -17,7 +17,8 @@ nonisolated struct AudioProcessingJob: Sendable {
 
     nonisolated func run(
         audioURL: URL,
-        locale: Locale = Locale(identifier: "ja-JP")
+        locale: Locale = Locale(identifier: "ja-JP"),
+        summaryTemplate: SummaryTemplate = .builtIn
     ) -> AsyncStream<AudioProcessingJobState> {
         AsyncStream(bufferingPolicy: .bufferingNewest(20)) { continuation in
             let task = Task {
@@ -51,7 +52,10 @@ nonisolated struct AudioProcessingJob: Sendable {
                     try Task.checkCancellation()
                     continuation.yield(.summarizing(item, transcript))
 
-                    let summaryResult = await summaryService.summarize(transcript) { progress in
+                    let summaryResult = await summaryService.summarize(
+                        transcript,
+                        template: summaryTemplate
+                    ) { progress in
                         continuation.yield(.summaryProgress(item, transcript, progress))
                     }
                     try Task.checkCancellation()
