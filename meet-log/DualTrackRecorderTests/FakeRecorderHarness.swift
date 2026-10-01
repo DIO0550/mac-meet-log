@@ -8,6 +8,7 @@ final class FakeRecorderHarness {
     var systemAudioCapture = FakeAudioCapture()
     var microphoneDeviceProvider = FakeMicrophoneDeviceProvider(devices: AudioInputDevice.previewDevices)
     var mixdownExporter = FakeMixdownExporter()
+    private(set) var requestedOutputDirectoryURL: URL?
     private(set) var requestedMicrophoneSelections: [MicrophoneInputDeviceSelection] = []
     private(set) var writers: [RecordingTrack: FakeTrackWriter] = [:]
 
@@ -33,7 +34,10 @@ final class FakeRecorderHarness {
 
     var dependencies: RecorderDependencies {
         RecorderDependencies(
-            outputDirectoryFactory: { [baseURL] _ in OutputDirectory(url: baseURL) },
+            outputDirectoryFactory: { [weak self, baseURL] url in
+                self?.requestedOutputDirectoryURL = url
+                return OutputDirectory(url: baseURL)
+            },
             writerFactory: { [weak self] track, url in
                 let writer = FakeTrackWriter(url: url)
                 self?.writers[track] = writer
