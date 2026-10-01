@@ -262,6 +262,14 @@ final class LibraryViewModel: ObservableObject {
         LibraryFinder.reveal(fileURL: selectedItem.mixdownURL)
     }
 
+    func openSelectedScreenCapture() {
+        guard let url = selectedItem?.existingScreenCaptureURL else {
+            return
+        }
+
+        NSWorkspace.shared.open(url)
+    }
+
     func exportDocumentForSelectedItem() -> MeetingExportDocument? {
         guard let selectedItem else {
             return nil

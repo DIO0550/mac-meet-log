@@ -12,6 +12,7 @@ The Apple-native path does not use external transcription APIs, external LLM API
 
 - macOS with Speech framework support for the selected locale.
 - Speech recognition permission must be granted.
+- Screen recording permission is required only when the Screen source is enabled.
 - On-device speech recognition must be available for the selected locale.
 - Foundation Models summary requires a compatible macOS SDK/runtime and Apple Intelligence availability.
 - Apple Intelligence must be enabled and its model assets must be ready before summary generation can run.
@@ -40,6 +41,21 @@ Notes are saved atomically as `<recording>_notes.json` beside the audio tracks
 when recording completes, including when mixdown fails. A missing sidecar means
 there are no notes; an unreadable sidecar is reported and preserved. If saving
 fails, keep the app open and use **Retry Saving Notes** before leaving the session.
+
+### Screen capture
+
+The recorder can optionally save a display, window, or application as a separate
+`<recording>_screen.mp4` file beside the audio tracks. Screen capture uses Apple's
+ScreenCaptureKit and requires macOS Screen Recording permission. If permission is
+missing, the target disappears, or capture fails, system audio and microphone
+recording continue and the app explains how to enable access.
+
+The default is H.264 at 15 fps, up to 1920×1080, with a 4 Mbps target bit rate.
+That is about 1.8 GB per hour before container overhead (roughly 7.2 GB for four
+hours). There is no live preview: omitting it avoids a second video rendering path
+during long meetings. Pause/resume drops paused frames and rewrites presentation
+timestamps so the screen file stays on the same active-time timeline as audio and
+timestamped notes.
 
 ### Speaker-labeled transcripts
 

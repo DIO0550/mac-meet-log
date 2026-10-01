@@ -490,6 +490,13 @@ private struct LibraryDetailPane: View {
             }
             .buttonStyle(.bordered)
 
+            if item.existingScreenCaptureURL != nil {
+                Button(action: viewModel.openSelectedScreenCapture) {
+                    Label("Open Screen", systemImage: "play.rectangle")
+                }
+                .buttonStyle(.bordered)
+            }
+
             if case let .failed(message) = viewModel.playbackState {
                 Text(message)
                     .font(.caption)
@@ -625,6 +632,13 @@ private struct LibraryDetailPane: View {
                     title: "Microphone",
                     url: item.microphoneURL,
                     exists: item.fileExistence.microphoneExists,
+                    isRequired: false
+                )
+                Divider()
+                LibraryFileStatusRow(
+                    title: "Screen Recording",
+                    url: item.screenCaptureURL,
+                    exists: item.fileExistence.screenCaptureExists,
                     isRequired: false
                 )
             }

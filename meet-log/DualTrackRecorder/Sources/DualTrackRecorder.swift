@@ -29,6 +29,7 @@ public actor DualTrackRecorder {
     public func start(
         sources: RecordingSources,
         microphoneInput: MicrophoneInputDeviceSelection = .systemDefault,
+        screenCaptureTarget: ScreenCaptureTarget? = nil,
         outputDirectory: URL? = nil
     ) async throws {
         let states = try await session.start(sources: sources)
@@ -38,11 +39,14 @@ public actor DualTrackRecorder {
             activeCaptureSession = try await makeCaptureSession(
                 sources: sources,
                 microphoneInput: microphoneInput,
+                screenCaptureTarget: screenCaptureTarget,
                 outputDirectoryURL: outputDirectory ?? configuration.outputDirectory
             )
-            try await activeCaptureSession?.start()
+            if let screenCaptureError = try await activeCaptureSession?.start() {
+                eventContinuation.yield(.screenCaptureUnavailable(screenCaptureError))
+            }
         } catch {
-            activeCaptureSession?.stop()
+            activeCaptureSession?.stopImmediately()
             activeCaptureSession = nil
             let recorderError = normalize(error, fallback: "Could not start recording.")
             publish(await session.fail(with: recorderError))
@@ -56,6 +60,18 @@ public actor DualTrackRecorder {
 
     public func microphoneInputDeviceChanges() -> AsyncStream<[AudioInputDevice]> {
         dependencies.microphoneDeviceProvider.deviceChanges()
+    }
+
+    public func screenCaptureTargets() async throws -> [ScreenCaptureTarget] {
+        try await dependencies.screenCaptureTargets()
+    }
+
+    public func requestScreenCapturePermission() throws {
+        guard dependencies.requestScreenCapturePermission() else {
+            throw RecorderError.permissionDenied(
+                "Screen Recording access is off. Allow meet-log in System Settings > Privacy & Security > Screen & System Audio Recording."
+            )
+        }
     }
 
     public func requestSystemAudioPermission() async throws {
@@ -121,7 +137,10 @@ public actor DualTrackRecorder {
         }
 
         do {
-            activeCaptureSession.stop()
+            let screenCaptureOutcome = await activeCaptureSession.stop()
+            if let error = screenCaptureOutcome.error {
+                eventContinuation.yield(.screenCaptureUnavailable(error))
+            }
             let trackURLs = try activeCaptureSession.closeWriters()
             let mixdown: RecordingMixdownOutcome
 
@@ -140,6 +159,7 @@ public actor DualTrackRecorder {
                 duration: await session.elapsed,
                 systemAudioURL: trackURLs.systemAudioURL,
                 microphoneURL: trackURLs.microphoneURL,
+                screenCaptureURL: screenCaptureOutcome.url,
                 mixdown: mixdown,
                 displayFileName: activeCaptureSession.outputFileSet.displayFileName
             )
@@ -158,6 +178,7 @@ public actor DualTrackRecorder {
     private func makeCaptureSession(
         sources: RecordingSources,
         microphoneInput: MicrophoneInputDeviceSelection,
+        screenCaptureTarget: ScreenCaptureTarget?,
         outputDirectoryURL: URL
     ) async throws -> ActiveCaptureSession {
         let outputDirectory = dependencies.outputDirectoryFactory(outputDirectoryURL)
@@ -166,6 +187,8 @@ public actor DualTrackRecorder {
         var processors: [RecordingTrack: TrackProcessor] = [:]
         var systemAudioCaptures: [any AudioCapture] = []
         var microphoneCapture: (any AudioCapture)?
+        var screenCapture: (any ScreenCapturing)?
+        var screenCapturePreparationError: RecorderError?
         let eventHandler: @Sendable (RecorderEvent) -> Void = { [eventContinuation] event in
             eventContinuation.yield(event)
         }
@@ -188,9 +211,25 @@ public actor DualTrackRecorder {
             }
         }
 
+        if sources.screenCaptureEnabled {
+            if let screenCaptureTarget {
+                screenCapture = dependencies.screenCaptureFactory(
+                    screenCaptureTarget,
+                    outputFileSet.screenCaptureURL,
+                    configuration.screenCaptureVideo
+                )
+            } else {
+                screenCapturePreparationError = RecorderError.captureFailed(
+                    "Choose a display, window, or application before starting screen capture."
+                )
+            }
+        }
+
         return ActiveCaptureSession(
             systemAudioCaptures: systemAudioCaptures,
             microphoneCapture: microphoneCapture,
+            screenCapture: screenCapture,
+            screenCapturePreparationError: screenCapturePreparationError,
             processors: processors,
             outputFileSet: outputFileSet
         )
@@ -251,40 +290,74 @@ private final class ActiveCaptureSession {
     private let systemAudioCaptures: [any AudioCapture]
     private let processors: [RecordingTrack: TrackProcessor]
     private var microphoneCapture: (any AudioCapture)?
+    private var screenCapture: (any ScreenCapturing)?
+    private let screenCapturePreparationError: RecorderError?
 
     init(
         systemAudioCaptures: [any AudioCapture],
         microphoneCapture: (any AudioCapture)?,
+        screenCapture: (any ScreenCapturing)?,
+        screenCapturePreparationError: RecorderError?,
         processors: [RecordingTrack: TrackProcessor],
         outputFileSet: OutputFileSet
     ) {
         self.systemAudioCaptures = systemAudioCaptures
         self.microphoneCapture = microphoneCapture
+        self.screenCapture = screenCapture
+        self.screenCapturePreparationError = screenCapturePreparationError
         self.processors = processors
         self.outputFileSet = outputFileSet
     }
 
-    func start() async throws {
+    func start() async throws -> RecorderError? {
         do {
             for capture in captures {
                 try await capture.start()
             }
         } catch {
-            stop()
+            stopImmediately()
             throw error
+        }
+
+        guard let screenCapture else {
+            return screenCapturePreparationError
+        }
+
+        do {
+            try await screenCapture.start()
+            return nil
+        } catch {
+            self.screenCapture = nil
+            return Self.screenCaptureError(error, fallback: "Could not start screen capture.")
         }
     }
 
-    func stop() {
+    func stopImmediately() {
         captures.forEach { $0.stop() }
+    }
+
+    func stop() async -> (url: URL?, error: RecorderError?) {
+        stopImmediately()
+        guard let screenCapture else {
+            return (nil, nil)
+        }
+
+        do {
+            return (try await screenCapture.stop(), nil)
+        } catch {
+            try? FileManager.default.removeItem(at: outputFileSet.screenCaptureURL)
+            return (nil, Self.screenCaptureError(error, fallback: "Could not save screen capture."))
+        }
     }
 
     func pause() {
         processors.values.forEach { $0.pause() }
+        screenCapture?.pause()
     }
 
     func resume() {
         processors.values.forEach { $0.resume() }
+        screenCapture?.resume()
     }
 
     func closeWriters() throws -> (systemAudioURL: URL?, microphoneURL: URL?) {
@@ -309,6 +382,14 @@ private final class ActiveCaptureSession {
 
     private var captures: [any AudioCapture] {
         systemAudioCaptures + [microphoneCapture].compactMap { $0 }
+    }
+
+    private static func screenCaptureError(_ error: Error, fallback: String) -> RecorderError {
+        if let recorderError = error as? RecorderError {
+            return recorderError
+        }
+
+        return RecorderError.captureFailed("\(fallback) \(error.localizedDescription)")
     }
 }
 

@@ -39,6 +39,7 @@ struct OutputDirectory {
             sessionDirectoryURL: sessionDirectory,
             systemAudioURL: sessionDirectory.appendingPathComponent("\(timestamp)_system.m4a", isDirectory: false),
             microphoneURL: sessionDirectory.appendingPathComponent("\(timestamp)_microphone.m4a", isDirectory: false),
+            screenCaptureURL: sessionDirectory.appendingPathComponent("\(timestamp)_screen.mp4", isDirectory: false),
             mixdownURL: sessionDirectory.appendingPathComponent("\(timestamp)_mix.m4a", isDirectory: false),
             displayFileName: "\(timestamp)_mix.m4a"
         )
@@ -57,6 +58,7 @@ struct OutputFileSet: Equatable, Sendable {
     let sessionDirectoryURL: URL
     let systemAudioURL: URL
     let microphoneURL: URL
+    let screenCaptureURL: URL
     let mixdownURL: URL
     let displayFileName: String
 }

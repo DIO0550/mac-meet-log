@@ -37,7 +37,7 @@ struct RecorderView: View {
                 if let error = viewModel.presentedError {
                     RecorderErrorBanner(
                         error: error,
-                        settingsAction: viewModel.openMicrophoneSettings,
+                        settingsAction: viewModel.openRelevantSettings,
                         dismissAction: viewModel.dismissError
                     )
                 }
@@ -103,16 +103,23 @@ struct RecorderView: View {
     }
 
     private var sourceSummary: String {
+        let audioSummary: String
         switch (viewModel.sources.systemAudioEnabled, viewModel.sources.microphoneEnabled) {
         case (true, true):
-            "System audio + microphone"
+            audioSummary = "System audio + microphone"
         case (true, false):
-            "System audio only"
+            audioSummary = "System audio only"
         case (false, true):
-            "Microphone only"
+            audioSummary = "Microphone only"
         case (false, false):
-            "No source selected"
+            audioSummary = "No audio source selected"
         }
+
+        if viewModel.sources.screenCaptureEnabled {
+            return "\(audioSummary) + screen"
+        }
+
+        return audioSummary
     }
 }
 
@@ -165,7 +172,7 @@ private struct RecorderErrorBanner: View {
             }
 
             HStack {
-                if error.recoveryAction == .microphoneSettings {
+                if error.recoveryAction != nil {
                     Button("Open Settings", action: settingsAction)
                 }
 

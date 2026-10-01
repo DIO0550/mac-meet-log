@@ -21,4 +21,13 @@ struct RecordingSourcesTests {
             try sources.validate()
         }
     }
+
+    @Test func defaultScreenCaptureProfileDocumentsHourlySize() {
+        let configuration = ScreenCaptureVideoConfiguration.default
+
+        #expect(configuration.framesPerSecond == 15)
+        #expect(configuration.maximumWidth == 1_920)
+        #expect(configuration.maximumHeight == 1_080)
+        #expect(configuration.estimatedBytesPerHour == 1_800_000_000)
+    }
 }

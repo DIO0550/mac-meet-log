@@ -91,6 +91,55 @@ struct DualTrackRecorderOrchestrationTests {
         })
     }
 
+    @Test func screenCaptureStartsStopsAndFollowsPauseResume() async throws {
+        let harness = FakeRecorderHarness(baseURL: temporaryOutputURL())
+        let recorder = DualTrackRecorder(configuration: configuration(), dependencies: harness.dependencies)
+
+        try await recorder.start(
+            sources: RecordingSources(
+                systemAudioEnabled: true,
+                microphoneEnabled: false,
+                screenCaptureEnabled: true
+            ),
+            screenCaptureTarget: .previewDisplay
+        )
+        try await recorder.pause()
+        try await recorder.resume()
+        let result = try await recorder.stop()
+
+        #expect(harness.screenCapture.startCount == 1)
+        #expect(harness.screenCapture.pauseCount == 1)
+        #expect(harness.screenCapture.resumeCount == 1)
+        #expect(harness.screenCapture.stopCount == 1)
+        #expect(result.screenCaptureURL == harness.screenCapture.outputURL)
+    }
+
+    @Test func screenPermissionFailureFallsBackToAudioRecording() async throws {
+        let harness = FakeRecorderHarness(baseURL: temporaryOutputURL())
+        let expectedError = RecorderError.permissionDenied("screen denied")
+        harness.screenCapture.startError = expectedError
+        let recorder = DualTrackRecorder(configuration: configuration(), dependencies: harness.dependencies)
+        let eventsTask = collectEvents(from: recorder.events, count: 5)
+
+        try await recorder.start(
+            sources: RecordingSources(
+                systemAudioEnabled: true,
+                microphoneEnabled: false,
+                screenCaptureEnabled: true
+            ),
+            screenCaptureTarget: .previewDisplay
+        )
+        let result = try await recorder.stop()
+        let events = await eventsTask.value
+
+        #expect(harness.systemAudioCapture.startCount == 1)
+        #expect(harness.systemAudioCapture.stopCount == 1)
+        #expect(result.systemAudioURL == harness.writers[.systemAudio]?.url)
+        #expect(result.screenCaptureURL == nil)
+        #expect(events.contains(.screenCaptureUnavailable(expectedError)))
+        #expect(events.last == .stateChanged(.complete(result)))
+    }
+
     @Test func captureFailurePublishesFailedState() async {
         let harness = FakeRecorderHarness(baseURL: temporaryOutputURL())
         let expectedError = RecorderError.captureFailed("fake capture failed")

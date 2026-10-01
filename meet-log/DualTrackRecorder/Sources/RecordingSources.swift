@@ -3,10 +3,16 @@ import Foundation
 public struct RecordingSources: Equatable, Sendable {
     public let systemAudioEnabled: Bool
     public let microphoneEnabled: Bool
+    public let screenCaptureEnabled: Bool
 
-    public init(systemAudioEnabled: Bool = true, microphoneEnabled: Bool = true) {
+    public init(
+        systemAudioEnabled: Bool = true,
+        microphoneEnabled: Bool = true,
+        screenCaptureEnabled: Bool = false
+    ) {
         self.systemAudioEnabled = systemAudioEnabled
         self.microphoneEnabled = microphoneEnabled
+        self.screenCaptureEnabled = screenCaptureEnabled
     }
 
     public var hasAnyEnabledSource: Bool {
@@ -15,7 +21,7 @@ public struct RecordingSources: Equatable, Sendable {
 
     public func validate() throws {
         guard hasAnyEnabledSource else {
-            throw RecorderError.invalidSources("At least one recording source must be enabled.")
+            throw RecorderError.invalidSources("At least one audio source must be enabled.")
         }
     }
 }

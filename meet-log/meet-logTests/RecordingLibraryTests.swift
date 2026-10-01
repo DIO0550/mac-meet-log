@@ -97,6 +97,32 @@ struct RecordingLibraryTests {
     }
 
     @MainActor
+    @Test func restoresRecordingWithAndWithoutScreenCapture() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let withScreen = directoryURL.appendingPathComponent("2026-05-19_16-00-00", isDirectory: true)
+        let withoutScreen = directoryURL.appendingPathComponent("2026-05-19_15-00-00", isDirectory: true)
+        try FileManager.default.createDirectory(at: withScreen, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: withoutScreen, withIntermediateDirectories: true)
+        try Data().write(to: withScreen.appendingPathComponent("2026-05-19_16-00-00_mix.m4a"))
+        try Data().write(to: withScreen.appendingPathComponent("2026-05-19_16-00-00_screen.mp4"))
+        try Data().write(to: withoutScreen.appendingPathComponent("2026-05-19_15-00-00_mix.m4a"))
+
+        let store = OutputDirectoryRecordingLibraryStore(
+            outputDirectoryURL: directoryURL,
+            durationProvider: FixedDurationProvider(duration: .seconds(60))
+        )
+        let items = try await store.recordings()
+
+        #expect(items.count == 2)
+        #expect(items[0].screenCaptureURL?.lastPathComponent == "2026-05-19_16-00-00_screen.mp4")
+        #expect(items[0].existingScreenCaptureURL == items[0].screenCaptureURL)
+        #expect(items[0].fileExistence.screenCaptureExists)
+        #expect(items[0].sourceSummary == "Mixdown only + screen")
+        #expect(items[1].screenCaptureURL == nil)
+        #expect(!items[1].fileExistence.screenCaptureExists)
+    }
+
+    @MainActor
     @Test func sessionFolderItemWinsWhenFlatItemHasSameID() async throws {
         let directoryURL = try makeTemporaryDirectory()
         let sessionDirectoryURL = directoryURL.appendingPathComponent("2026-05-19_13-00-00", isDirectory: true)

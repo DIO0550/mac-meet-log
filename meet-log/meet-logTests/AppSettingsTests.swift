@@ -118,7 +118,7 @@ struct AppSettingsTests {
         defer { continuation.finish() }
         let result = RecordingResult(duration: .zero, systemAudioURL: nil, microphoneURL: nil,
                                      mixdown: .mixed(URL(fileURLWithPath: "/tmp/test_mix.m4a")), displayFileName: "test")
-        let client = RecorderClient(events: events, microphoneDevices: { [device] }, start: { _, _ in },
+        let client = RecorderClient(events: events, microphoneDevices: { [device] }, start: { _, _, _ in },
                                     pause: {}, resume: {}, stop: { result }, dismiss: {},
                                     switchMicrophoneInput: { _ in })
         let model = RecorderViewModel(recorder: client, settings: settings)

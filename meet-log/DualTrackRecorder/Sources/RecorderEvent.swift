@@ -6,6 +6,7 @@ public enum RecorderEvent: Equatable, Sendable {
     case waveform(WaveformSnapshot)
     case microphoneInputDeviceSwitched(MicrophoneInputDeviceSelection)
     case microphoneInputDeviceSwitchFailed(MicrophoneInputDeviceSelection, RecorderError)
+    case screenCaptureUnavailable(RecorderError)
 }
 
 public struct AudioLevelSnapshot: Equatable, Sendable {
