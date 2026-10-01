@@ -117,7 +117,7 @@ struct RecordingLibraryTests {
         #expect(items[0].screenCaptureURL?.lastPathComponent == "2026-05-19_16-00-00_screen.mp4")
         #expect(items[0].existingScreenCaptureURL == items[0].screenCaptureURL)
         #expect(items[0].fileExistence.screenCaptureExists)
-        #expect(items[0].sourceSummary == "Mixdown only + screen")
+        #expect(items[0].sourceSummary == "Mixdown + screen")
         #expect(items[1].screenCaptureURL == nil)
         #expect(!items[1].fileExistence.screenCaptureExists)
     }
