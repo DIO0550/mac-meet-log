@@ -440,7 +440,7 @@ struct MeetingExportView: View {
                     Label("ファイル保存", systemImage: "square.and.arrow.down")
                 }
                 .disabled(selectedSections.isEmpty)
-                SharePickerButton(items: sharingItems)
+                SharePickerButton(makeItems: sharingItems)
                     .disabled(selectedSections.isEmpty)
             }
         }
@@ -460,7 +460,7 @@ struct MeetingExportView: View {
         }
     }
 
-    private var sharingItems: [Any] {
+    private func sharingItems() -> [Any] {
         guard let payload = try? MeetingExportFormatter().payload(
             for: document,
             sections: selectedSections,
@@ -507,7 +507,7 @@ struct MeetingExportView: View {
 }
 
 private struct SharePickerButton: NSViewRepresentable {
-    let items: [Any]
+    let makeItems: () -> [Any]
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -521,22 +521,25 @@ private struct SharePickerButton: NSViewRepresentable {
         )
         button.bezelStyle = .rounded
         context.coordinator.button = button
-        context.coordinator.items = items
+        context.coordinator.makeItems = makeItems
         return button
     }
 
     func updateNSView(_ nsView: NSButton, context: Context) {
-        context.coordinator.items = items
-        nsView.isEnabled = !items.isEmpty
+        context.coordinator.makeItems = makeItems
     }
 
     final class Coordinator: NSObject {
         weak var button: NSButton?
-        var items = [Any]()
+        var makeItems: () -> [Any] = { [] }
         private var picker: NSSharingServicePicker?
 
         @objc func share() {
-            guard let button, !items.isEmpty else {
+            guard let button else {
+                return
+            }
+            let items = makeItems()
+            guard !items.isEmpty else {
                 return
             }
             let picker = NSSharingServicePicker(items: items)
