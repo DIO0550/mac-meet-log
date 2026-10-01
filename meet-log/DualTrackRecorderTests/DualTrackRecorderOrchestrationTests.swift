@@ -16,14 +16,15 @@ struct DualTrackRecorderOrchestrationTests {
 
     @Test func startStopPublishesCompleteResult() async throws {
         let harness = FakeRecorderHarness(baseURL: temporaryOutputURL())
-        let recorder = DualTrackRecorder(configuration: configuration(), dependencies: harness.dependencies)
+        let configuration = configuration()
+        let recorder = DualTrackRecorder(configuration: configuration, dependencies: harness.dependencies)
         let eventsTask = collectEvents(from: recorder.events, count: 4)
 
         try await recorder.start(sources: RecordingSources(systemAudioEnabled: true, microphoneEnabled: true))
         let result = try await recorder.stop()
         let events = await eventsTask.value
 
-        #expect(harness.requestedOutputDirectoryURL == configuration().outputDirectory)
+        #expect(harness.requestedOutputDirectoryURL == configuration.outputDirectory)
         #expect(harness.systemAudioCapture.startCount == 1)
         #expect(harness.microphoneCapture.startCount == 1)
         #expect(harness.systemAudioCapture.stopCount == 1)

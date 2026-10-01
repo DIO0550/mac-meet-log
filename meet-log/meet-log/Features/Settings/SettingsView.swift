@@ -7,6 +7,7 @@ struct SettingsView: View {
     @ObservedObject private var settings = AppSettings.shared
     @State private var devices: [AudioInputDevice] = []
     @State private var directoryError: String?
+    @State private var microphoneError: String?
     @State private var showingTemplate = false
 
     var body: some View {
@@ -22,14 +23,16 @@ struct SettingsView: View {
             let recorder = DualTrackRecorder()
             do {
                 devices = try await recorder.microphoneInputDevices()
+                microphoneError = nil
                 for await values in await recorder.microphoneInputDeviceChanges() {
                     if Task.isCancelled {
                         break
                     }
                     devices = values
+                    microphoneError = nil
                 }
             } catch {
-                directoryError = error.localizedDescription
+                microphoneError = error.localizedDescription
             }
         }
     }
@@ -74,6 +77,10 @@ struct SettingsView: View {
             }
             Text("録音中の変更は終了後に反映されます。未接続のマイクはシステムの既定に戻ります。")
                 .font(.callout).foregroundStyle(.secondary)
+            if let microphoneError {
+                Text("マイクの一覧を読み込めませんでした: \(microphoneError)")
+                    .foregroundStyle(.red)
+            }
         }
         .formStyle(.grouped)
     }
