@@ -174,29 +174,138 @@ private struct LibraryListPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            TextField("録音名・要約・文字起こし・メモを検索", text: $viewModel.searchQuery)
+                .textFieldStyle(.roundedBorder)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+
             HStack {
-                Text("\(viewModel.items.count) recordings")
+                Text(statusText)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
 
                 Spacer(minLength: 0)
+
+                if viewModel.isSearching {
+                    ProgressView()
+                        .controlSize(.small)
+                }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
 
+            if isSearchActive {
+                searchResults
+            } else {
+                List(selection: $viewModel.selectedID) {
+                    ForEach(viewModel.items) { item in
+                        LibraryItemRow(item: item)
+                            .tag(item.id)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                viewModel.select(item)
+                            }
+                    }
+                }
+                .listStyle(.sidebar)
+            }
+        }
+        .background(Color(nsColor: .controlBackgroundColor))
+    }
+
+    private var isSearchActive: Bool {
+        !viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var statusText: String {
+        guard isSearchActive, let progress = viewModel.searchProgress else {
+            return "\(viewModel.items.count) recordings"
+        }
+        if progress.isComplete {
+            return "\(progress.results.count) results"
+        }
+        return "Searching \(progress.scannedCount) / \(progress.totalCount)"
+    }
+
+    @ViewBuilder
+    private var searchResults: some View {
+        if let progress = viewModel.searchProgress,
+           progress.isComplete,
+           progress.results.isEmpty {
+            VStack(spacing: 10) {
+                Image(systemName: "magnifyingglass")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                Text("一致する録音はありません")
+                    .font(.callout.weight(.medium))
+                Text("別のキーワードで検索してください。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
             List(selection: $viewModel.selectedID) {
-                ForEach(viewModel.items) { item in
-                    LibraryItemRow(item: item)
-                        .tag(item.id)
+                ForEach(viewModel.searchResults) { result in
+                    LibrarySearchResultRow(result: result)
+                        .tag(result.item.id)
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            viewModel.select(item)
+                            viewModel.select(result.item)
                         }
                 }
             }
             .listStyle(.sidebar)
         }
-        .background(Color(nsColor: .controlBackgroundColor))
+
+        if let progress = viewModel.searchProgress, progress.unprocessedCount > 0 {
+            Label(
+                "文字起こし・要約がない録音 \(progress.unprocessedCount) 件は本文検索の対象外です。",
+                systemImage: "info.circle"
+            )
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+        }
+    }
+}
+
+private struct LibrarySearchResultRow: View {
+    let result: LibrarySearchResult
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(result.item.title)
+                .font(.callout.weight(.semibold))
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            ForEach(Array(result.matches.prefix(2)), id: \.section) { match in
+                VStack(alignment: .leading, spacing: 3) {
+                    Label(match.section.title, systemImage: match.section.systemImage)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+
+                    highlightedText(match.snippet)
+                        .font(.caption)
+                        .lineLimit(2)
+                }
+            }
+
+            if result.matches.count > 2 {
+                Text("ほか \(result.matches.count - 2) 項目に一致")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 7)
+    }
+
+    private func highlightedText(_ snippet: LibrarySearchSnippet) -> Text {
+        Text(snippet.prefix)
+            + Text(snippet.match).bold().foregroundColor(.accentColor)
+            + Text(snippet.suffix)
     }
 }
 
