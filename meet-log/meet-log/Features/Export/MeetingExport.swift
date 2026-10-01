@@ -54,7 +54,7 @@ enum MeetingExportFormat: String, CaseIterable, Identifiable, Sendable {
     var contentType: UTType {
         switch self {
         case .markdown:
-            return .markdown
+            return UTType(filenameExtension: "md") ?? .plainText
         case .plainText:
             return .plainText
         case .pdf:
