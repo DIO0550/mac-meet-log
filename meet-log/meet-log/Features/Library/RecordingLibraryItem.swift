@@ -49,6 +49,9 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
 
     var sourceSummary: String {
         if systemAudioURL == nil, microphoneURL == nil, screenCaptureURL != nil {
+            if fileExistence.mixdownExists {
+                return "Mixdown + screen"
+            }
             return "Screen only"
         }
 
