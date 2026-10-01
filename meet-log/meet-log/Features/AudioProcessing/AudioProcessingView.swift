@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct AudioProcessingView: View {
     @StateObject private var viewModel: AudioProcessingViewModel
     @State private var isDropTargeted = false
+    @State private var exportDocument: MeetingExportDocument?
     let recorderAction: () -> Void
 
     @MainActor
@@ -34,6 +35,7 @@ struct AudioProcessingView: View {
                     stateSection
                     transcriptSection
                     summarySection
+                    exportSection
                 }
                 .padding(22)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -47,6 +49,9 @@ struct AudioProcessingView: View {
             allowsMultipleSelection: false
         ) { result in
             viewModel.handleImporterResult(firstSelectedURL(from: result))
+        }
+        .sheet(item: $exportDocument) { document in
+            MeetingExportView(document: document)
         }
     }
 
@@ -251,6 +256,34 @@ struct AudioProcessingView: View {
             }
         case .idle, .loading, .transcribing, .summarizing, .summaryProgress, .failed, .cancelled:
             EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var exportSection: some View {
+        if let document = viewModel.exportDocument {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Export")
+                        .font(.headline)
+                    Text("文字起こしと生成済みの要約を書き出します。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                    exportDocument = document
+                } label: {
+                    Label("Export…", systemImage: "square.and.arrow.up")
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding(16)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
+            )
         }
     }
 

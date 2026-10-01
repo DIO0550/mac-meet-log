@@ -197,6 +197,31 @@ struct SummaryTests {
     }
 
     @MainActor
+    @Test func sidecarStoreRoundTripsSpeakerLabeledTranscript() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let item = libraryItem(directoryURL: directoryURL)
+        let store = MeetingSummarySidecarStore()
+        let expected = TranscriptResult(
+            text: "確認します。",
+            localeIdentifier: "ja-JP",
+            sourceURL: URL(fileURLWithPath: "/tmp/sample.m4a"),
+            segments: [
+                TranscriptSegment(
+                    text: "確認します。",
+                    timestamp: 4,
+                    duration: 2,
+                    speaker: .me
+                )
+            ]
+        )
+
+        try await store.save(expected, for: item)
+        let loaded = try await store.transcript(for: item)
+
+        #expect(loaded == expected)
+    }
+
+    @MainActor
     @Test func sidecarStoreReturnsNilWhenSummaryFileDoesNotExist() async throws {
         let store = MeetingSummarySidecarStore()
         let item = libraryItem(directoryURL: try makeTemporaryDirectory())

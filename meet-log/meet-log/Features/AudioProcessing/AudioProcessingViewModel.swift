@@ -12,6 +12,7 @@ final class AudioProcessingViewModel: ObservableObject {
     private var processingTask: Task<Void, Never>?
     private var processingRunID: UUID?
     private var lastSelectedURL: URL?
+    private var selectedCreatedAt = Date()
 
     init(
         job: AudioProcessingJob = AudioProcessingJob(),
@@ -63,6 +64,27 @@ final class AudioProcessingViewModel: ObservableObject {
         state.importedItem?.fileName ?? lastSelectedURL?.lastPathComponent
     }
 
+    var exportDocument: MeetingExportDocument? {
+        guard case let .completed(item, transcript, result) = state else {
+            return nil
+        }
+
+        let summary: MeetingSummary?
+        if case let .summarized(generatedSummary) = result {
+            summary = generatedSummary
+        } else {
+            summary = nil
+        }
+
+        return MeetingExportDocument(
+            title: item.url.deletingPathExtension().lastPathComponent,
+            createdAt: selectedCreatedAt,
+            summary: summary,
+            transcript: transcript,
+            notes: []
+        )
+    }
+
     func presentImporter() {
         isImporterPresented = true
     }
@@ -87,6 +109,8 @@ final class AudioProcessingViewModel: ObservableObject {
         let runID = UUID()
         processingRunID = runID
         lastSelectedURL = audioURL
+        let attributes = try? FileManager.default.attributesOfItem(atPath: audioURL.path)
+        selectedCreatedAt = attributes?[.creationDate] as? Date ?? .now
         state = .loading
 
         let selectedLocale = locale ?? Locale(identifier: AppSettings.shared.preferences.localeIdentifier)

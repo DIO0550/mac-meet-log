@@ -2,8 +2,15 @@ import Foundation
 
 protocol MeetingSummaryStoring: Sendable {
     nonisolated func summary(for item: RecordingLibraryItem) async throws -> MeetingSummary?
+    nonisolated func transcript(for item: RecordingLibraryItem) async throws -> TranscriptResult?
     nonisolated func save(_ summary: MeetingSummary, for item: RecordingLibraryItem) async throws
     nonisolated func save(_ transcript: TranscriptResult, for item: RecordingLibraryItem) async throws
+}
+
+extension MeetingSummaryStoring {
+    nonisolated func transcript(for item: RecordingLibraryItem) async throws -> TranscriptResult? {
+        nil
+    }
 }
 
 struct MeetingSummarySidecarStore: MeetingSummaryStoring {
@@ -26,6 +33,20 @@ struct MeetingSummarySidecarStore: MeetingSummaryStoring {
             let url = summaryURL(for: item)
             let markdown = MeetingSummaryMarkdownCodec.encode(summary, recordingID: item.id)
             try markdown.write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            throw SummaryError.persistenceFailed(error.localizedDescription)
+        }
+    }
+
+    nonisolated func transcript(for item: RecordingLibraryItem) async throws -> TranscriptResult? {
+        let url = transcriptURL(for: item)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+
+        do {
+            let markdown = try String(contentsOf: url, encoding: .utf8)
+            return try TranscriptMarkdownCodec.decode(markdown)
         } catch {
             throw SummaryError.persistenceFailed(error.localizedDescription)
         }
@@ -263,7 +284,71 @@ enum TranscriptMarkdownCodec {
 
         sections[1] += "\n- Source: \(transcript.sourceURL.path)"
         sections.append("## Text\n\n\(transcript.text)")
+        if !transcript.segments.isEmpty {
+            sections.append(
+                """
+                ## Segments
+
+                \(transcript.segments.map(segmentLine).joined(separator: "\n"))
+                """
+            )
+        }
+        if let data = try? JSONEncoder().encode(transcript) {
+            sections.append("<!-- transcript-data: \(data.base64EncodedString()) -->")
+        }
 
         return sections.joined(separator: "\n\n") + "\n"
+    }
+
+    nonisolated static func decode(_ markdown: String) throws -> TranscriptResult {
+        if let encoded = metadataValue(named: "transcript-data", in: markdown),
+           let data = Data(base64Encoded: encoded),
+           let transcript = try? JSONDecoder().decode(TranscriptResult.self, from: data) {
+            return transcript
+        }
+
+        guard let text = sectionBody(named: "Text", in: markdown)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else {
+            throw SummaryError.persistenceFailed("Transcript markdown is missing the text section.")
+        }
+
+        let localeIdentifier = lineValue(named: "Locale", in: markdown) ?? "ja-JP"
+        let sourcePath = lineValue(named: "Source", in: markdown) ?? "/"
+        return TranscriptResult(
+            text: text,
+            localeIdentifier: localeIdentifier,
+            sourceURL: URL(fileURLWithPath: sourcePath)
+        )
+    }
+
+    private nonisolated static func segmentLine(_ segment: TranscriptSegment) -> String {
+        let speaker = segment.speaker?.displayName ?? "話者不明"
+        return "- [\(segment.timeRangeText)] **\(speaker)**: \(segment.text)"
+    }
+
+    private nonisolated static func metadataValue(named key: String, in markdown: String) -> String? {
+        let prefix = "<!-- \(key): "
+        return markdown
+            .components(separatedBy: .newlines)
+            .first { $0.hasPrefix(prefix) && $0.hasSuffix(" -->") }
+            .map { String($0.dropFirst(prefix.count).dropLast(" -->".count)) }
+    }
+
+    private nonisolated static func lineValue(named key: String, in markdown: String) -> String? {
+        let prefix = "- \(key): "
+        return markdown
+            .components(separatedBy: .newlines)
+            .first { $0.hasPrefix(prefix) }
+            .map { String($0.dropFirst(prefix.count)) }
+    }
+
+    private nonisolated static func sectionBody(named name: String, in markdown: String) -> String? {
+        let lines = markdown.components(separatedBy: .newlines)
+        guard let start = lines.firstIndex(of: "## \(name)") else {
+            return nil
+        }
+        let body = lines.dropFirst(start + 1).prefix { !$0.hasPrefix("## ") && !$0.hasPrefix("<!-- ") }
+        return body.joined(separator: "\n")
     }
 }
