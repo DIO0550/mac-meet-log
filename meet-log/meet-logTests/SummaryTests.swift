@@ -42,6 +42,20 @@ struct SummaryTests {
         #expect(prompt.prompt.contains("次回は設計を確認します。"))
     }
 
+    @Test func promptBuilderUsesSelectedTemplatePerspective() throws {
+        let template = SummaryTemplate(
+            name: "設計レビュー",
+            instructions: "設計上の判断とリスクを抽出してください。",
+            outputPerspective: "- 要約: 判断の背景\n- 主要トピック: 設計案とリスク\n- アクションアイテム: 担当者と期限"
+        )
+        let builder = SummaryPromptBuilder(characterLimit: 100, template: template)
+        let prompt = try builder.makePrompt(for: transcript(text: "案Aを採用します。")).get()
+
+        #expect(prompt.instructions.contains("設計上の判断"))
+        #expect(prompt.prompt.contains("設計案とリスク"))
+        #expect(prompt.prompt.contains("案Aを採用します。"))
+    }
+
     @Test func unavailableSummaryServiceReturnsReason() async {
         let service = UnavailableSummaryService(reason: .modelNotReady)
 
@@ -162,6 +176,8 @@ struct SummaryTests {
         #expect(loaded?.actionItems.map(\.dueDateText) == sampleSummary.actionItems.map(\.dueDateText))
         #expect(loaded?.transcriptSourceURL == sampleSummary.transcriptSourceURL)
         #expect(loaded?.createdAt == sampleSummary.createdAt)
+        #expect(loaded?.templateID == sampleSummary.templateID)
+        #expect(loaded?.templateName == sampleSummary.templateName)
         #expect(FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("2026-05-19_10-30-00_summary.md").path))
     }
 
@@ -219,7 +235,9 @@ private let sampleSummary = MeetingSummary(
         )
     ],
     transcriptSourceURL: URL(fileURLWithPath: "/tmp/sample.m4a"),
-    createdAt: Date(timeIntervalSince1970: 1_800_000_000)
+    createdAt: Date(timeIntervalSince1970: 1_800_000_000),
+    templateID: SummaryTemplate.builtIn.id,
+    templateName: SummaryTemplate.builtIn.name
 )
 
 private func transcript(text: String) -> TranscriptResult {

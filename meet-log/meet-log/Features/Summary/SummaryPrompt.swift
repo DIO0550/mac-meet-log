@@ -9,9 +9,11 @@ struct SummaryPromptBuilder: Sendable {
     nonisolated static let defaultCharacterLimit = 24_000
 
     let characterLimit: Int
+    let template: SummaryTemplate
 
-    nonisolated init(characterLimit: Int = Self.defaultCharacterLimit) {
+    nonisolated init(characterLimit: Int = Self.defaultCharacterLimit, template: SummaryTemplate = .builtIn) {
         self.characterLimit = characterLimit
+        self.template = template
     }
 
     nonisolated func makePrompt(for transcript: TranscriptResult) -> Result<SummaryPrompt, SummaryError> {
@@ -30,26 +32,26 @@ struct SummaryPromptBuilder: Sendable {
 
         return .success(
             SummaryPrompt(
-                instructions: Self.instructions + "\n" + speakerInstruction,
-                prompt: Self.prompt(transcriptText: trimmedText, localeIdentifier: transcript.localeIdentifier)
+                instructions: template.instructions + "\n" + speakerInstruction,
+                prompt: Self.prompt(
+                    transcriptText: trimmedText,
+                    localeIdentifier: transcript.localeIdentifier,
+                    outputPerspective: template.outputPerspective
+                )
             )
         )
     }
 
-    nonisolated private static let instructions = """
-    あなたは日本語の会議ログ作成を支援するアシスタントです。
-    文字起こしから、会議参加者が後で読み返しやすい簡潔な要約、主要トピック、アクションアイテムを抽出してください。
-    推測で事実を補わず、話者や期限が不明な場合は空欄として扱ってください。
-    """
-
-    nonisolated private static func prompt(transcriptText: String, localeIdentifier: String) -> String {
+    nonisolated private static func prompt(
+        transcriptText: String,
+        localeIdentifier: String,
+        outputPerspective: String
+    ) -> String {
         """
         次の文字起こしを会議ログとして整理してください。
 
         出力内容:
-        - 要約: 3から6文の自然な日本語
-        - 主要トピック: 議題ごとのタイトルと補足
-        - アクションアイテム: タスク、担当者、期限
+        \(outputPerspective)
 
         locale: \(localeIdentifier)
 

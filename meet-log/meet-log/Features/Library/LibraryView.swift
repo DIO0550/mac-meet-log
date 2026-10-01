@@ -252,6 +252,7 @@ private struct LibraryItemRow: View {
 }
 
 private struct LibraryDetailPane: View {
+    @ObservedObject private var settings = AppSettings.shared
     @ObservedObject var viewModel: LibraryViewModel
 
     var body: some View {
@@ -352,7 +353,18 @@ private struct LibraryDetailPane: View {
             }
             .buttonStyle(.bordered)
 
-            Button(action: viewModel.generateSummaryForSelectedItem) {
+            Picker("Template", selection: $viewModel.selectedSummaryTemplateID) {
+                ForEach(settings.summaryTemplates) { template in
+                    Text(template.name).tag(template.id)
+                }
+            }
+            .frame(maxWidth: 190)
+
+            Button {
+                viewModel.generateSummaryForSelectedItem(
+                    template: settings.summaryTemplate(id: viewModel.selectedSummaryTemplateID)
+                )
+            } label: {
                 Label("Summarize", systemImage: "text.badge.checkmark")
             }
             .buttonStyle(.bordered)
@@ -510,6 +522,11 @@ private struct MeetingSummaryView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let templateName = summary.templateName {
+                Label(templateName, systemImage: "doc.text")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Text(summary.summary)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)

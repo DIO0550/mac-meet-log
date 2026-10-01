@@ -32,6 +32,37 @@ struct AppSettingsTests {
         #expect(restored.defaultMicrophoneID(in: []) == nil)
     }
 
+    @Test func summaryTemplatesRoundTripAndBuiltInCannotBeDeleted() throws {
+        let (defaults, suite) = try isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        let custom = SummaryTemplate(
+            name: "1on1",
+            instructions: "本人の課題と支援事項を整理してください。",
+            outputPerspective: "- 要約: 状況\n- アクションアイテム: 次の一歩"
+        )
+        try settings.saveSummaryTemplate(custom)
+        settings.preferences.summaryTemplateID = custom.id
+
+        let restored = AppSettings(defaults: defaults)
+        #expect(restored.summaryTemplate().id == custom.id)
+        #expect(restored.summaryTemplates.contains(custom))
+        #expect(throws: SummaryTemplateError.builtInCannotBeDeleted) {
+            try restored.deleteSummaryTemplate(id: SummaryTemplate.builtIn.id)
+        }
+    }
+
+    @Test func invalidSummaryTemplateIsRejected() throws {
+        let (defaults, suite) = try isolatedDefaults()
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = AppSettings(defaults: defaults)
+        let invalid = SummaryTemplate(name: "", instructions: "", outputPerspective: "")
+
+        #expect(throws: SummaryTemplateError.invalid) {
+            try settings.saveSummaryTemplate(invalid)
+        }
+    }
+
     @Test func corruptPreferencesFallBackButCorruptBookmarkDoesNotSilentlyRedirectRecording() throws {
         let (defaults, suite) = try isolatedDefaults()
         defer { defaults.removePersistentDomain(forName: suite) }
