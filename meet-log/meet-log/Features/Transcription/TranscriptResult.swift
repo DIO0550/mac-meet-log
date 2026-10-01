@@ -1,6 +1,6 @@
 import Foundation
 
-enum TranscriptSpeaker: String, Equatable, Sendable {
+enum TranscriptSpeaker: String, Codable, Equatable, Sendable {
     case me
     case other
 
@@ -14,7 +14,7 @@ enum TranscriptSpeaker: String, Equatable, Sendable {
     }
 }
 
-struct TranscriptResult: Equatable, Sendable {
+struct TranscriptResult: Codable, Equatable, Sendable {
     let text: String
     let localeIdentifier: String
     let sourceURL: URL
@@ -33,7 +33,7 @@ struct TranscriptResult: Equatable, Sendable {
     }
 }
 
-struct TranscriptSegment: Equatable, Sendable {
+struct TranscriptSegment: Codable, Equatable, Sendable {
     let text: String
     let timestamp: TimeInterval
     let duration: TimeInterval

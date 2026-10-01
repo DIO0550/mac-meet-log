@@ -254,6 +254,7 @@ private struct LibraryItemRow: View {
 private struct LibraryDetailPane: View {
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject var viewModel: LibraryViewModel
+    @State private var exportDocument: MeetingExportDocument?
 
     var body: some View {
         if let item = viewModel.selectedItem {
@@ -273,6 +274,9 @@ private struct LibraryDetailPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .background(Color(nsColor: .windowBackgroundColor))
+            .sheet(item: $exportDocument) { document in
+                MeetingExportView(document: document)
+            }
         } else {
             LibraryStatusView(
                 systemImage: "sidebar.left",
@@ -369,6 +373,13 @@ private struct LibraryDetailPane: View {
             }
             .buttonStyle(.bordered)
             .disabled(viewModel.isSummaryBusy || !item.hasTranscribableAudio)
+
+            Button {
+                exportDocument = viewModel.exportDocumentForSelectedItem()
+            } label: {
+                Label("Export", systemImage: "square.and.arrow.up")
+            }
+            .buttonStyle(.bordered)
 
             if case let .failed(message) = viewModel.playbackState {
                 Text(message)

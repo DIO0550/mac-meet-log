@@ -171,6 +171,7 @@ final class LibraryViewModel: ObservableObject {
 
         Task {
             do {
+                transcript = try? await summaryStore.transcript(for: item)
                 if let summary = try await summaryStore.summary(for: item) {
                     summaryState = .summarized(summary)
                 } else {
@@ -234,6 +235,34 @@ final class LibraryViewModel: ObservableObject {
         }
 
         LibraryFinder.reveal(fileURL: selectedItem.mixdownURL)
+    }
+
+    func exportDocumentForSelectedItem() -> MeetingExportDocument? {
+        guard let selectedItem else {
+            return nil
+        }
+
+        let summary: MeetingSummary?
+        if case let .summarized(savedSummary) = summaryState {
+            summary = savedSummary
+        } else {
+            summary = nil
+        }
+
+        let notes: [RecordingNote]
+        if let url = RecordingNoteStore().url(for: selectedItem.mixdownURL) {
+            notes = (try? RecordingNoteStore().load(from: url)) ?? []
+        } else {
+            notes = []
+        }
+
+        return MeetingExportDocument(
+            title: selectedItem.title,
+            createdAt: selectedItem.createdAt,
+            summary: summary,
+            transcript: transcript,
+            notes: notes
+        )
     }
 
     func remixSelectedItem() {
