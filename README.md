@@ -28,3 +28,15 @@ When a Mac cannot summarize with Foundation Models, the app keeps the transcript
 ## Development Notes
 
 - [Apple official transcription availability](Task/31-apple-official-transcription-availability.md)
+
+### Timestamped notes
+
+While recording or paused, enter a note and choose **Add** (or press Return).
+The timestamp uses active recording time, excluding pauses. Notes appear in
+chronological order in the recording result and Library details, where they can
+be added, edited, or deleted. For saved recordings, enter the position in seconds.
+
+Notes are saved atomically as `<recording>_notes.json` beside the audio tracks
+when recording completes, including when mixdown fails. A missing sidecar means
+there are no notes; an unreadable sidecar is reported and preserved. If saving
+fails, keep the app open and use **Retry Saving Notes** before leaving the session.
