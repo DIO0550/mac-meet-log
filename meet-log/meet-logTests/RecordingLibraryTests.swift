@@ -292,6 +292,60 @@ struct RecordingLibraryTests {
     }
 
     @MainActor
+    @Test(arguments: [true, false])
+    func viewModelPublishesAndSavesMergedSpeakerTranscript(mixdownExists: Bool) async throws {
+        let item = makeItem(
+            id: "2026-05-19_10-30-00",
+            mixdownExists: mixdownExists,
+            systemAudioExists: true,
+            microphoneExists: true
+        )
+        let systemURL = try #require(item.systemAudioURL)
+        let microphoneURL = try #require(item.microphoneURL)
+        let systemTranscript = TranscriptResult(
+            text: "確認をお願いします。",
+            localeIdentifier: "ja-JP",
+            sourceURL: systemURL,
+            segments: [TranscriptSegment(text: "確認をお願いします。", timestamp: 5, duration: 2)]
+        )
+        let microphoneTranscript = TranscriptResult(
+            text: "資料を共有します。",
+            localeIdentifier: "ja-JP",
+            sourceURL: microphoneURL,
+            segments: [TranscriptSegment(text: "資料を共有します。", timestamp: 1, duration: 3)]
+        )
+        let expectedTranscript = TranscriptResult(
+            text: "自分: 資料を共有します。\n相手: 確認をお願いします。",
+            localeIdentifier: "ja-JP",
+            sourceURL: mixdownExists ? item.mixdownURL : systemURL,
+            segments: [
+                TranscriptSegment(text: "資料を共有します。", timestamp: 1, duration: 3, speaker: .me),
+                TranscriptSegment(text: "確認をお願いします。", timestamp: 5, duration: 2, speaker: .other)
+            ]
+        )
+        let summary = makeSummary()
+        let summaryStore = FakeMeetingSummaryStore(summary: nil)
+        let viewModel = LibraryViewModel(
+            store: FakeRecordingLibraryStore(items: [item]),
+            transcriptionService: PerTrackAudioTranscriptionService(transcripts: [
+                systemURL: systemTranscript,
+                microphoneURL: microphoneTranscript
+            ]),
+            summaryService: FakeTranscriptSummaryService(result: .summarized(summary)),
+            summaryStore: summaryStore
+        )
+
+        await viewModel.load()
+        viewModel.generateSummaryForSelectedItem()
+        try await waitUntil { viewModel.summaryState == .summarized(summary) }
+
+        #expect(viewModel.transcript == expectedTranscript)
+        #expect(summaryStore.savedTranscript == expectedTranscript)
+        #expect(summaryStore.savedSummary == summary)
+        #expect(summaryStore.savedItem == item)
+    }
+
+    @MainActor
     @Test func viewModelMapsTranscriptionFailureToSummaryFailure() async throws {
         let item = makeItem(id: "2026-05-19_10-30-00")
         let viewModel = LibraryViewModel(
@@ -448,6 +502,23 @@ private struct FakeAudioTranscriptionService: AudioTranscriptionService {
                 continuation.finish(throwing: error)
             }
         }
+    }
+}
+
+private struct PerTrackAudioTranscriptionService: AudioTranscriptionService {
+    let transcripts: [URL: TranscriptResult]
+
+    func transcribe(
+        audioURL: URL,
+        locale: Locale
+    ) -> AsyncThrowingStream<TranscriptionEvent, Error> {
+        guard let transcript = transcripts[audioURL] else {
+            return FakeAudioTranscriptionService(result: .failure(TranscriptionError.emptyResult))
+                .transcribe(audioURL: audioURL, locale: locale)
+        }
+
+        return FakeAudioTranscriptionService(result: .success(transcript))
+            .transcribe(audioURL: audioURL, locale: locale)
     }
 }
 
