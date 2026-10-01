@@ -2,6 +2,7 @@ import SwiftUI
 import DualTrackRecorder
 
 struct LibraryView: View {
+    @ObservedObject private var settings = AppSettings.shared
     @StateObject private var viewModel: LibraryViewModel
     @StateObject private var audioImportViewModel: AudioImportViewModel
     let recorderAction: () -> Void
@@ -38,6 +39,10 @@ struct LibraryView: View {
         .task {
             await viewModel.load()
         }
+        .onChange(of: settings.directoryRevision) {
+            viewModel.stopPlayback()
+            viewModel.refresh()
+        }
         .fileImporter(
             isPresented: $audioImportViewModel.isImporterPresented,
             allowedContentTypes: AudioImportAllowedContentTypes.values,
@@ -62,7 +67,7 @@ struct LibraryView: View {
                     Text("Library")
                         .font(.title3.weight(.semibold))
 
-                    Text("Saved mixdowns from \(RecordingStorage.defaultOutputDirectoryDisplayPath)")
+                    Text("Saved mixdowns from \((try? settings.resolveOutputDirectory().path) ?? "Unavailable folder")")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

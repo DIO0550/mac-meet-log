@@ -67,3 +67,11 @@ cannot be reduced within the input limit, produce an explicit retryable error.
 Short transcripts keep the existing single-call path. The existing extractive
 fallback remains available without Apple Intelligence and accepts long text
 without a model prompt limit.
+
+### 設定（⌘,）
+
+- macOS標準の設定画面で保存先、既定の録音ソース・マイク、文字起こし言語を変更できます。未設定時は従来の保存先、両ソース有効、日本語（ja-JP）を使います。
+- 保存先はsecurity-scoped bookmarkとして保持します。変更は次の録音から適用し、既存ファイルは移動しません。ライブラリは現在の保存先のみを表示します。以前の録音を見る場合は元の保存先を選び直してください。
+- 録音・再生・サイドカーファイルの保存を妨げないよう、使用した保存先のアクセスはアプリ終了まで維持します。保存先が利用できない場合は設定で選び直してください。
+- 既定のマイクはデバイスUIDで保持し、未接続の場合はシステムの既定に戻ります。録音中の設定変更は録音終了後に反映します。
+- 言語変更は次に開始する文字起こしから適用します。要約タブには標準会議テンプレートを表示します。テンプレートの追加・編集は #26 で拡張します。

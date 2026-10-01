@@ -18,5 +18,8 @@ struct meet_logApp: App {
         .commands {
             AppCommands()
         }
+        Settings {
+            SettingsView()
+        }
     }
 }

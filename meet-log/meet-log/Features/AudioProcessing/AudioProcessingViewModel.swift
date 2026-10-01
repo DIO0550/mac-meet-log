@@ -8,14 +8,14 @@ final class AudioProcessingViewModel: ObservableObject {
     @Published var isImporterPresented = false
 
     private let job: AudioProcessingJob
-    private let locale: Locale
+    private let locale: Locale?
     private var processingTask: Task<Void, Never>?
     private var processingRunID: UUID?
     private var lastSelectedURL: URL?
 
     init(
         job: AudioProcessingJob = AudioProcessingJob(),
-        locale: Locale = Locale(identifier: "ja-JP")
+        locale: Locale? = nil
     ) {
         self.job = job
         self.locale = locale
@@ -89,8 +89,9 @@ final class AudioProcessingViewModel: ObservableObject {
         lastSelectedURL = audioURL
         state = .loading
 
+        let selectedLocale = locale ?? Locale(identifier: AppSettings.shared.preferences.localeIdentifier)
         processingTask = Task {
-            for await nextState in job.run(audioURL: audioURL, locale: locale) {
+            for await nextState in job.run(audioURL: audioURL, locale: selectedLocale) {
                 guard processingRunID == runID else {
                     break
                 }

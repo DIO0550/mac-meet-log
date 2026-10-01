@@ -2,11 +2,13 @@ import Foundation
 
 public struct AudioInputDevice: Equatable, Identifiable, Sendable {
     public let id: String
+    public let persistentUID: String?
     public let name: String
     public let isDefault: Bool
 
-    public init(id: String, name: String, isDefault: Bool = false) {
+    public init(id: String, name: String, isDefault: Bool = false, persistentUID: String? = nil) {
         self.id = id
+        self.persistentUID = persistentUID
         self.name = name
         self.isDefault = isDefault
     }

@@ -25,6 +25,9 @@ final class RecorderViewModel: ObservableObject {
     @Published private(set) var hasUnsavedNotes = false
     private let now: () -> Date
 
+    private var settingsSubscription: AnyCancellable?
+    private var pendingPreferences: AppPreferences?
+    private var hasLoadedMicrophoneDevices = false
     private let recorder: RecorderClient
     private var eventTask: Task<Void, Never>?
     private var microphoneDeviceTask: Task<Void, Never>?
@@ -33,15 +36,23 @@ final class RecorderViewModel: ObservableObject {
     private var recordingBaselineDate: Date?
 
     convenience init() {
-        self.init(recorder: RecorderClient())
+        self.init(recorder: RecorderClient(), settings: .shared)
     }
 
-    init(recorder: RecorderClient, now: @escaping () -> Date = Date.init) {
+    init(recorder: RecorderClient, now: @escaping () -> Date = Date.init, settings: AppSettings? = nil) {
         self.now = now
         self.recorder = recorder
         refreshMicrophonePermissionState()
         subscribeToRecorderEvents()
         refreshMicrophoneDevices()
+        settingsSubscription = settings?.$preferences.removeDuplicates { previous, current in
+            previous.systemAudioEnabled == current.systemAudioEnabled
+                && previous.microphoneEnabled == current.microphoneEnabled
+                && previous.microphoneDeviceUID == current.microphoneDeviceUID
+        }.sink { [weak self] preferences in
+            self?.pendingPreferences = preferences
+            self?.applyPendingPreferences()
+        }
     }
 
     deinit {
@@ -368,6 +379,8 @@ final class RecorderViewModel: ObservableObject {
         Task {
             do {
                 microphoneDevices = try await recorder.microphoneDevices()
+                hasLoadedMicrophoneDevices = true
+                applyPendingPreferences()
                 if let selectedMicrophoneDeviceID,
                    microphoneDevices.contains(where: { $0.id == selectedMicrophoneDeviceID }) == false {
                     self.selectedMicrophoneDeviceID = nil
@@ -376,6 +389,21 @@ final class RecorderViewModel: ObservableObject {
                 presentNonFatal(error: error)
             }
         }
+    }
+
+    private func applyPendingPreferences() {
+        guard canEditSources, let preferences = pendingPreferences else {
+            return
+        }
+        sources = RecordingSources(systemAudioEnabled: preferences.systemAudioEnabled,
+                                   microphoneEnabled: preferences.microphoneEnabled)
+        guard hasLoadedMicrophoneDevices else {
+            return
+        }
+        selectedMicrophoneDeviceID = microphoneDevices.first {
+            $0.persistentUID == preferences.microphoneDeviceUID && $0.persistentUID != nil
+        }?.id
+        pendingPreferences = nil
     }
 
     private var selectedMicrophoneSelection: MicrophoneInputDeviceSelection {
@@ -456,6 +484,8 @@ final class RecorderViewModel: ObservableObject {
     private func apply(state newState: RecorderState) {
         let previousState = state
         state = newState
+
+        applyPendingPreferences()
 
         switch newState {
         case .idle:
@@ -635,10 +665,10 @@ struct RecorderClient {
     let requestSystemAudioPermission: () async throws -> Void
 
     init() {
-        self.init(recorder: DualTrackRecorder())
+        self.init(recorder: DualTrackRecorder(), outputDirectory: { try AppSettings.shared.resolveOutputDirectory() })
     }
 
-    init(recorder: DualTrackRecorder) {
+    init(recorder: DualTrackRecorder, outputDirectory: (() throws -> URL)? = nil) {
         events = recorder.events
         microphoneDevices = {
             try await recorder.microphoneInputDevices()
@@ -647,7 +677,8 @@ struct RecorderClient {
             await recorder.microphoneInputDeviceChanges()
         }
         start = { sources, microphoneInput in
-            try await recorder.start(sources: sources, microphoneInput: microphoneInput)
+            let directory = try outputDirectory?()
+            try await recorder.start(sources: sources, microphoneInput: microphoneInput, outputDirectory: directory)
         }
         pause = {
             try await recorder.pause()
@@ -778,9 +809,9 @@ struct RecorderErrorPresentation: Equatable, Identifiable {
             title = "Audio capture could not start"
             self.message = message
             recoveryAction = nil
-        case .outputFailed:
+        case let .outputFailed(detail):
             title = "Save location is not available"
-            message = "The recording folder could not be prepared. Check Application Support permissions and try again."
+            message = detail
             recoveryAction = nil
         case .invalidState:
             title = "Recorder is busy"

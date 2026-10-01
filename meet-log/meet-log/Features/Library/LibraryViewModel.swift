@@ -60,7 +60,7 @@ final class LibraryViewModel: ObservableObject {
 
     convenience init() {
         self.init(
-            store: OutputDirectoryRecordingLibraryStore(),
+            store: SettingsRecordingLibraryStore(),
             transcriptionService: TranscriptionServiceFactory.makeDefault(),
             summaryService: SummaryServiceFactory.makeDefault(),
             summaryStore: MeetingSummarySidecarStore(),
@@ -194,7 +194,8 @@ final class LibraryViewModel: ObservableObject {
                 let transcript = try await trackAwareTranscriptionService.finalTranscript(
                     systemAudioURL: item.existingSystemAudioURL,
                     microphoneURL: item.existingMicrophoneURL,
-                    fallbackURL: item.hasUsableMixdown ? item.mixdownURL : nil
+                    fallbackURL: item.hasUsableMixdown ? item.mixdownURL : nil,
+                    locale: Locale(identifier: AppSettings.shared.preferences.localeIdentifier)
                 )
                 self.transcript = transcript
                 try await summaryStore.save(transcript, for: item)

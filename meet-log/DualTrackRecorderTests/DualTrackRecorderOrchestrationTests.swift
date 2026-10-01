@@ -3,6 +3,17 @@ import Testing
 @testable import DualTrackRecorder
 
 struct DualTrackRecorderOrchestrationTests {
+    @Test func recordingUsesTheDirectorySelectedAtStart() async throws {
+        let baseURL = temporaryOutputURL()
+        defer { try? FileManager.default.removeItem(at: baseURL) }
+        let harness = FakeRecorderHarness(baseURL: baseURL)
+        let recorder = DualTrackRecorder(configuration: configuration(), dependencies: harness.dependencies)
+        let selected = baseURL.appendingPathComponent("selected")
+        try await recorder.start(sources: RecordingSources(), outputDirectory: selected)
+        _ = try await recorder.stop()
+        #expect(harness.requestedOutputDirectoryURL == selected)
+    }
+
     @Test func startStopPublishesCompleteResult() async throws {
         let harness = FakeRecorderHarness(baseURL: temporaryOutputURL())
         let recorder = DualTrackRecorder(configuration: configuration(), dependencies: harness.dependencies)
@@ -12,6 +23,7 @@ struct DualTrackRecorderOrchestrationTests {
         let result = try await recorder.stop()
         let events = await eventsTask.value
 
+        #expect(harness.requestedOutputDirectoryURL == configuration().outputDirectory)
         #expect(harness.systemAudioCapture.startCount == 1)
         #expect(harness.microphoneCapture.startCount == 1)
         #expect(harness.systemAudioCapture.stopCount == 1)

@@ -28,7 +28,8 @@ public actor DualTrackRecorder {
 
     public func start(
         sources: RecordingSources,
-        microphoneInput: MicrophoneInputDeviceSelection = .systemDefault
+        microphoneInput: MicrophoneInputDeviceSelection = .systemDefault,
+        outputDirectory: URL? = nil
     ) async throws {
         let states = try await session.start(sources: sources)
         publish(states)
@@ -36,7 +37,8 @@ public actor DualTrackRecorder {
         do {
             activeCaptureSession = try await makeCaptureSession(
                 sources: sources,
-                microphoneInput: microphoneInput
+                microphoneInput: microphoneInput,
+                outputDirectoryURL: outputDirectory ?? configuration.outputDirectory
             )
             try await activeCaptureSession?.start()
         } catch {
@@ -155,9 +157,10 @@ public actor DualTrackRecorder {
 
     private func makeCaptureSession(
         sources: RecordingSources,
-        microphoneInput: MicrophoneInputDeviceSelection
+        microphoneInput: MicrophoneInputDeviceSelection,
+        outputDirectoryURL: URL
     ) async throws -> ActiveCaptureSession {
-        let outputDirectory = dependencies.outputDirectoryFactory(configuration.outputDirectory)
+        let outputDirectory = dependencies.outputDirectoryFactory(outputDirectoryURL)
         let startDate = await session.startDate ?? Date()
         let outputFileSet = try outputDirectory.fileSet(for: startDate)
         var processors: [RecordingTrack: TrackProcessor] = [:]

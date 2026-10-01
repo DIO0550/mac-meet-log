@@ -29,7 +29,8 @@ final class CoreAudioMicrophoneDeviceProvider: MicrophoneDeviceProviding, @unche
                 return AudioInputDevice(
                     id: String(deviceID),
                     name: name,
-                    isDefault: deviceID == defaultInputID
+                    isDefault: deviceID == defaultInputID,
+                    persistentUID: try deviceString(for: deviceID, selector: kAudioDevicePropertyDeviceUID)
                 )
             }
             .sorted { first, second in
@@ -158,7 +159,11 @@ final class CoreAudioMicrophoneDeviceProvider: MicrophoneDeviceProviding, @unche
     }
 
     private func deviceName(for deviceID: AudioDeviceID) throws -> String? {
-        var address = Self.propertyAddress(selector: kAudioObjectPropertyName)
+        try deviceString(for: deviceID, selector: kAudioObjectPropertyName)
+    }
+
+    private func deviceString(for deviceID: AudioDeviceID, selector: AudioObjectPropertySelector) throws -> String? {
+        var address = Self.propertyAddress(selector: selector)
         var name: Unmanaged<CFString>?
         var dataSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
         let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, &name)
