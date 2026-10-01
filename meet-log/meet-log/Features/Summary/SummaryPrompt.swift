@@ -24,9 +24,13 @@ struct SummaryPromptBuilder: Sendable {
             return .failure(.transcriptTooLong(characterCount: trimmedText.count, limit: characterLimit))
         }
 
+        let speakerInstruction = transcript.segments.contains(where: { $0.speaker != nil })
+            ? "話者ラベル（自分 / 相手）を担当者推定に使い、根拠がない担当者は推測しないでください。\n"
+            : ""
+
         return .success(
             SummaryPrompt(
-                instructions: Self.instructions,
+                instructions: Self.instructions + "\n" + speakerInstruction,
                 prompt: Self.prompt(transcriptText: trimmedText, localeIdentifier: transcript.localeIdentifier)
             )
         )

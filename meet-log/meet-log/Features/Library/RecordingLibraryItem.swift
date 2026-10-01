@@ -59,6 +59,10 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
         fileExistence.mixdownExists
     }
 
+    var hasTranscribableAudio: Bool {
+        fileExistence.mixdownExists || fileExistence.systemAudioExists || fileExistence.microphoneExists
+    }
+
     var canRemix: Bool {
         mixdownStatus == .needsMix
     }
