@@ -14,7 +14,6 @@ struct RecordingNote: Codable, Equatable, Identifiable, Sendable {
     }
 
     var timestamp: String {
-        Duration.seconds(elapsed).mediaDurationDisplayString
+        Duration.seconds(elapsed).recorderDisplayString
     }
 }
-

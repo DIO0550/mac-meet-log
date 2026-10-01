@@ -5,6 +5,18 @@ import Testing
 
 @MainActor
 struct RecordingNotesTests {
+    @Test(arguments: [
+        (65.0, "01:05"),
+        (3_599.0, "59:59"),
+        (3_600.0, "1:00:00"),
+        (3_901.0, "1:05:01"),
+        (3_902.0, "1:05:02")
+    ])
+    func timestampPreservesSeconds(elapsed: TimeInterval, expected: String) {
+        let note = RecordingNote(elapsed: elapsed, text: "議題")
+        #expect(note.timestamp == expected)
+    }
+
     @Test func roundTripSortsNotesAndPreservesEditsAndDeletion() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
