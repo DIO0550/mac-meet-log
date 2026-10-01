@@ -49,12 +49,23 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var transcript: TranscriptResult?
     @Published private(set) var remixState: RemixState = .idle
     @Published var selectedSummaryTemplateID = SummaryTemplate.builtIn.id
+    @Published var searchQuery = "" {
+        didSet {
+            guard searchQuery != oldValue else {
+                return
+            }
+            scheduleSearch()
+        }
+    }
+    @Published private(set) var searchProgress: LibrarySearchProgress?
 
     private let store: RecordingLibraryStoring
     private let trackAwareTranscriptionService: TrackAwareTranscriptionService
     private let summaryService: TranscriptSummaryService
     private let summaryStore: MeetingSummaryStoring
     private let mixdownService: RecordingLibraryMixdownServicing
+    private let searchService: LibrarySearchService
+    private var searchTask: Task<Void, Never>?
     private lazy var playbackController = MixdownPlaybackController { [weak self] state in
         self?.playbackState = state
     }
@@ -87,13 +98,15 @@ final class LibraryViewModel: ObservableObject {
         transcriptionService: AudioTranscriptionService,
         summaryService: TranscriptSummaryService,
         summaryStore: MeetingSummaryStoring,
-        mixdownService: RecordingLibraryMixdownServicing = RecordingMixdownService()
+        mixdownService: RecordingLibraryMixdownServicing = RecordingMixdownService(),
+        searchService: LibrarySearchService? = nil
     ) {
         self.store = store
         self.trackAwareTranscriptionService = TrackAwareTranscriptionService(service: transcriptionService)
         self.summaryService = summaryService
         self.summaryStore = summaryStore
         self.mixdownService = mixdownService
+        self.searchService = searchService ?? LibrarySearchService(summaryStore: summaryStore)
     }
 
     var items: [RecordingLibraryItem] {
@@ -114,6 +127,18 @@ final class LibraryViewModel: ObservableObject {
         }
 
         return items.first
+    }
+
+    var searchResults: [LibrarySearchResult] {
+        searchProgress?.results ?? []
+    }
+
+    var isSearching: Bool {
+        guard !searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let searchProgress else {
+            return false
+        }
+        return !searchProgress.isComplete
     }
 
     var isPlayingSelectedItem: Bool {
@@ -298,8 +323,45 @@ final class LibraryViewModel: ObservableObject {
             reconcileSelection(with: loadedItems)
             state = loadedItems.isEmpty ? .empty : .loaded(loadedItems)
             loadSummaryForSelectedItem()
+            scheduleSearch()
         } catch {
             state = .failed(error.localizedDescription)
+        }
+    }
+
+    private func scheduleSearch() {
+        searchTask?.cancel()
+
+        let query = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            searchProgress = nil
+            return
+        }
+
+        let searchableItems = items
+        searchProgress = LibrarySearchProgress(
+            results: [],
+            scannedCount: 0,
+            totalCount: searchableItems.count,
+            unprocessedCount: 0,
+            isComplete: searchableItems.isEmpty
+        )
+        searchTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+            } catch {
+                return
+            }
+
+            guard let self, !Task.isCancelled else {
+                return
+            }
+            for await progress in searchService.search(query: query, items: searchableItems) {
+                guard !Task.isCancelled else {
+                    return
+                }
+                searchProgress = progress
+            }
         }
     }
 
