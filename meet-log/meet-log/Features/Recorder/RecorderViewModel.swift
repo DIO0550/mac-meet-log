@@ -20,6 +20,11 @@ final class RecorderViewModel: ObservableObject {
     @Published private(set) var isRequestingMicrophonePermission = false
     @Published private(set) var systemAudioPermissionState: SourcePermissionState = .unknown
     @Published private(set) var microphonePermissionState: SourcePermissionState = .unknown
+    @Published private(set) var screenCaptureTargets: [ScreenCaptureTarget] = []
+    @Published private(set) var selectedScreenCaptureTargetID: String?
+    @Published private(set) var isLoadingScreenCaptureTargets = false
+    @Published private(set) var isRequestingScreenCapturePermission = false
+    @Published private(set) var screenCapturePermissionState: SourcePermissionState = .unknown
 
     @Published private(set) var notes: [RecordingNote] = []
     @Published private(set) var hasUnsavedNotes = false
@@ -119,12 +124,31 @@ final class RecorderViewModel: ObservableObject {
             && microphonePermissionState != .granted
     }
 
+    var canRequestScreenCapturePermission: Bool {
+        sources.screenCaptureEnabled
+            && canEditSources
+            && !isRequestingScreenCapturePermission
+            && screenCapturePermissionState != .granted
+    }
+
     var shouldShowSystemAudioPermissionRequest: Bool {
         sources.systemAudioEnabled && systemAudioPermissionState != .granted
     }
 
     var shouldShowMicrophonePermissionRequest: Bool {
         sources.microphoneEnabled && microphonePermissionState != .granted
+    }
+
+    var shouldShowScreenCapturePermissionRequest: Bool {
+        sources.screenCaptureEnabled && screenCapturePermissionState != .granted
+    }
+
+    var selectedScreenCaptureTarget: ScreenCaptureTarget? {
+        guard let selectedScreenCaptureTargetID else {
+            return nil
+        }
+
+        return screenCaptureTargets.first { $0.id == selectedScreenCaptureTargetID }
     }
 
     var selectedMicrophoneDisplayName: String {
@@ -169,7 +193,8 @@ final class RecorderViewModel: ObservableObject {
 
         sources = RecordingSources(
             systemAudioEnabled: isEnabled,
-            microphoneEnabled: sources.microphoneEnabled
+            microphoneEnabled: sources.microphoneEnabled,
+            screenCaptureEnabled: sources.screenCaptureEnabled
         )
     }
 
@@ -180,8 +205,32 @@ final class RecorderViewModel: ObservableObject {
 
         sources = RecordingSources(
             systemAudioEnabled: sources.systemAudioEnabled,
-            microphoneEnabled: isEnabled
+            microphoneEnabled: isEnabled,
+            screenCaptureEnabled: sources.screenCaptureEnabled
         )
+    }
+
+    func setScreenCaptureEnabled(_ isEnabled: Bool) {
+        guard canEditSources else {
+            return
+        }
+
+        sources = RecordingSources(
+            systemAudioEnabled: sources.systemAudioEnabled,
+            microphoneEnabled: sources.microphoneEnabled,
+            screenCaptureEnabled: isEnabled
+        )
+        if isEnabled {
+            refreshScreenCaptureTargets()
+        }
+    }
+
+    func selectScreenCaptureTarget(id: String) {
+        guard canEditSources, screenCaptureTargets.contains(where: { $0.id == id }) else {
+            return
+        }
+
+        selectedScreenCaptureTargetID = id
     }
 
     func selectMicrophoneDevice(id deviceID: String?) {
@@ -254,6 +303,43 @@ final class RecorderViewModel: ObservableObject {
         }
     }
 
+    func requestScreenCapturePermission() {
+        guard canRequestScreenCapturePermission else {
+            return
+        }
+
+        Task {
+            isRequestingScreenCapturePermission = true
+            clearTransientPresentation()
+
+            do {
+                try await recorder.requestScreenCapturePermission()
+                screenCapturePermissionState = .granted
+                await loadScreenCaptureTargets()
+            } catch {
+                screenCapturePermissionState = .blocked
+                presentNonFatal(
+                    error: error,
+                    title: "Screen Recording access is off",
+                    message: error.localizedDescription,
+                    recoveryAction: .screenRecordingSettings
+                )
+            }
+
+            isRequestingScreenCapturePermission = false
+        }
+    }
+
+    func refreshScreenCaptureTargets() {
+        guard sources.screenCaptureEnabled, !isLoadingScreenCaptureTargets else {
+            return
+        }
+
+        Task {
+            await loadScreenCaptureTargets()
+        }
+    }
+
     func start() {
         guard canStart else {
             present(error: RecorderError.invalidSources("Choose at least one recording source."))
@@ -270,7 +356,7 @@ final class RecorderViewModel: ObservableObject {
                 elapsed = .zero
                 recordingBaselineElapsed = .zero
                 recordingBaselineDate = nil
-                try await recorder.start(sources, selectedMicrophoneSelection)
+                try await recorder.start(sources, selectedMicrophoneSelection, selectedScreenCaptureTarget)
                 if sources.systemAudioEnabled {
                     systemAudioPermissionState = .granted
                 }
@@ -375,6 +461,28 @@ final class RecorderViewModel: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
+    func openRelevantSettings() {
+        switch presentedError?.recoveryAction {
+        case .microphoneSettings:
+            openMicrophoneSettings()
+        case .screenRecordingSettings:
+            openScreenRecordingSettings()
+        case nil:
+            break
+        }
+    }
+
+    func openScreenRecordingSettings() {
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
+        ) else {
+            NSWorkspace.shared.open(URL(fileURLWithPath: "/System/Applications/System Settings.app"))
+            return
+        }
+
+        NSWorkspace.shared.open(url)
+    }
+
     func refreshMicrophoneDevices() {
         Task {
             do {
@@ -391,12 +499,33 @@ final class RecorderViewModel: ObservableObject {
         }
     }
 
+    private func loadScreenCaptureTargets() async {
+        isLoadingScreenCaptureTargets = true
+        defer { isLoadingScreenCaptureTargets = false }
+
+        do {
+            let targets = try await recorder.screenCaptureTargets()
+            screenCaptureTargets = targets
+            screenCapturePermissionState = .granted
+            if selectedScreenCaptureTarget == nil {
+                selectedScreenCaptureTargetID = targets.first?.id
+            }
+        } catch {
+            screenCaptureTargets = []
+            selectedScreenCaptureTargetID = nil
+            screenCapturePermissionState = .blocked
+        }
+    }
+
     private func applyPendingPreferences() {
         guard canEditSources, let preferences = pendingPreferences else {
             return
         }
-        sources = RecordingSources(systemAudioEnabled: preferences.systemAudioEnabled,
-                                   microphoneEnabled: preferences.microphoneEnabled)
+        sources = RecordingSources(
+            systemAudioEnabled: preferences.systemAudioEnabled,
+            microphoneEnabled: preferences.microphoneEnabled,
+            screenCaptureEnabled: sources.screenCaptureEnabled
+        )
         guard hasLoadedMicrophoneDevices else {
             return
         }
@@ -478,6 +607,20 @@ final class RecorderViewModel: ObservableObject {
             apply(microphoneInputDeviceSelection: selection)
         case let .microphoneInputDeviceSwitchFailed(selection, error):
             applyFailed(microphoneInputDeviceSelection: selection, error: error)
+        case let .screenCaptureUnavailable(error):
+            let recoveryAction: RecorderErrorPresentation.RecoveryAction?
+            if case .permissionDenied = error {
+                screenCapturePermissionState = .blocked
+                recoveryAction = .screenRecordingSettings
+            } else {
+                recoveryAction = nil
+            }
+            presentNonFatal(
+                error: error,
+                title: "Screen capture is unavailable",
+                message: "Audio recording is continuing. \(error.localizedDescription)",
+                recoveryAction: recoveryAction
+            )
         }
     }
 
@@ -647,8 +790,18 @@ final class RecorderViewModel: ObservableObject {
         }
     }
 
-    private func presentNonFatal(error: Error, title: String? = nil, message: String? = nil) {
-        presentedError = RecorderErrorPresentation(error: error, title: title, message: message)
+    private func presentNonFatal(
+        error: Error,
+        title: String? = nil,
+        message: String? = nil,
+        recoveryAction: RecorderErrorPresentation.RecoveryAction? = nil
+    ) {
+        presentedError = RecorderErrorPresentation(
+            error: error,
+            title: title,
+            message: message,
+            recoveryAction: recoveryAction
+        )
     }
 }
 
@@ -656,13 +809,15 @@ struct RecorderClient {
     let events: AsyncStream<RecorderEvent>
     let microphoneDevices: () async throws -> [AudioInputDevice]
     let microphoneDeviceChanges: () async -> AsyncStream<[AudioInputDevice]>
-    let start: (RecordingSources, MicrophoneInputDeviceSelection) async throws -> Void
+    let screenCaptureTargets: () async throws -> [ScreenCaptureTarget]
+    let start: (RecordingSources, MicrophoneInputDeviceSelection, ScreenCaptureTarget?) async throws -> Void
     let pause: () async throws -> Void
     let resume: () async throws -> Void
     let stop: () async throws -> RecordingResult
     let dismiss: () async throws -> Void
     let switchMicrophoneInput: (MicrophoneInputDeviceSelection) async throws -> Void
     let requestSystemAudioPermission: () async throws -> Void
+    let requestScreenCapturePermission: () async throws -> Void
 
     init() {
         self.init(recorder: DualTrackRecorder(), outputDirectory: { try AppSettings.shared.resolveOutputDirectory() })
@@ -676,9 +831,17 @@ struct RecorderClient {
         microphoneDeviceChanges = {
             await recorder.microphoneInputDeviceChanges()
         }
-        start = { sources, microphoneInput in
+        screenCaptureTargets = {
+            try await recorder.screenCaptureTargets()
+        }
+        start = { sources, microphoneInput, screenCaptureTarget in
             let directory = try outputDirectory?()
-            try await recorder.start(sources: sources, microphoneInput: microphoneInput, outputDirectory: directory)
+            try await recorder.start(
+                sources: sources,
+                microphoneInput: microphoneInput,
+                screenCaptureTarget: screenCaptureTarget,
+                outputDirectory: directory
+            )
         }
         pause = {
             try await recorder.pause()
@@ -698,6 +861,9 @@ struct RecorderClient {
         requestSystemAudioPermission = {
             try await recorder.requestSystemAudioPermission()
         }
+        requestScreenCapturePermission = {
+            try await recorder.requestScreenCapturePermission()
+        }
     }
 
     init(
@@ -706,17 +872,20 @@ struct RecorderClient {
         microphoneDeviceChanges: @escaping () async -> AsyncStream<[AudioInputDevice]> = {
             AsyncStream { $0.finish() }
         },
-        start: @escaping (RecordingSources, MicrophoneInputDeviceSelection) async throws -> Void,
+        screenCaptureTargets: @escaping () async throws -> [ScreenCaptureTarget] = { [] },
+        start: @escaping (RecordingSources, MicrophoneInputDeviceSelection, ScreenCaptureTarget?) async throws -> Void,
         pause: @escaping () async throws -> Void,
         resume: @escaping () async throws -> Void,
         stop: @escaping () async throws -> RecordingResult,
         dismiss: @escaping () async throws -> Void,
         switchMicrophoneInput: @escaping (MicrophoneInputDeviceSelection) async throws -> Void,
-        requestSystemAudioPermission: @escaping () async throws -> Void = {}
+        requestSystemAudioPermission: @escaping () async throws -> Void = {},
+        requestScreenCapturePermission: @escaping () async throws -> Void = {}
     ) {
         self.events = events
         self.microphoneDevices = microphoneDevices
         self.microphoneDeviceChanges = microphoneDeviceChanges
+        self.screenCaptureTargets = screenCaptureTargets
         self.start = start
         self.pause = pause
         self.resume = resume
@@ -724,6 +893,7 @@ struct RecorderClient {
         self.dismiss = dismiss
         self.switchMicrophoneInput = switchMicrophoneInput
         self.requestSystemAudioPermission = requestSystemAudioPermission
+        self.requestScreenCapturePermission = requestScreenCapturePermission
     }
 }
 
@@ -752,10 +922,11 @@ struct RecordingCompletion: Equatable, Identifiable {
     let mixdown: RecordingMixdownOutcome
     let systemAudioURL: URL?
     let microphoneURL: URL?
+    let screenCaptureURL: URL?
     let displayFileName: String
 
     var revealURL: URL? {
-        mixdown.url ?? systemAudioURL ?? microphoneURL
+        mixdown.url ?? systemAudioURL ?? microphoneURL ?? screenCaptureURL
     }
 
     var warningMessage: String? {
@@ -771,6 +942,7 @@ struct RecordingCompletion: Equatable, Identifiable {
         mixdown = result.mixdown
         systemAudioURL = result.systemAudioURL
         microphoneURL = result.microphoneURL
+        screenCaptureURL = result.screenCaptureURL
         displayFileName = result.displayFileName
     }
 }
@@ -778,6 +950,7 @@ struct RecordingCompletion: Equatable, Identifiable {
 struct RecorderErrorPresentation: Equatable, Identifiable {
     enum RecoveryAction: Equatable {
         case microphoneSettings
+        case screenRecordingSettings
     }
 
     let id = UUID()
@@ -785,11 +958,16 @@ struct RecorderErrorPresentation: Equatable, Identifiable {
     let message: String
     let recoveryAction: RecoveryAction?
 
-    init(error: Error, title overrideTitle: String? = nil, message overrideMessage: String? = nil) {
+    init(
+        error: Error,
+        title overrideTitle: String? = nil,
+        message overrideMessage: String? = nil,
+        recoveryAction overrideRecoveryAction: RecoveryAction? = nil
+    ) {
         if let overrideTitle, let overrideMessage {
             title = overrideTitle
             message = overrideMessage
-            recoveryAction = nil
+            recoveryAction = overrideRecoveryAction
             return
         }
 
