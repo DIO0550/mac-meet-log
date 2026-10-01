@@ -304,7 +304,7 @@ private struct LibrarySearchResultRow: View {
 
     private func highlightedText(_ snippet: LibrarySearchSnippet) -> Text {
         Text(snippet.prefix)
-            + Text(snippet.match).bold().foregroundColor(.accentColor)
+            + Text(snippet.match).bold().foregroundStyle(.tint)
             + Text(snippet.suffix)
     }
 }
