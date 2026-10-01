@@ -121,16 +121,24 @@ public actor DualTrackRecorder {
         do {
             activeCaptureSession.stop()
             let trackURLs = try activeCaptureSession.closeWriters()
-            let mixdownURL = try await dependencies.mixdownExporter.export(
-                systemAudioURL: trackURLs.systemAudioURL,
-                microphoneURL: trackURLs.microphoneURL,
-                destinationURL: activeCaptureSession.outputFileSet.mixdownURL
-            )
+            let mixdown: RecordingMixdownOutcome
+
+            do {
+                let mixdownURL = try await dependencies.mixdownExporter.export(
+                    systemAudioURL: trackURLs.systemAudioURL,
+                    microphoneURL: trackURLs.microphoneURL,
+                    destinationURL: activeCaptureSession.outputFileSet.mixdownURL
+                )
+                mixdown = .mixed(mixdownURL)
+            } catch {
+                mixdown = .failed(normalizeMixdown(error))
+            }
+
             let result = RecordingResult(
                 duration: await session.elapsed,
                 systemAudioURL: trackURLs.systemAudioURL,
                 microphoneURL: trackURLs.microphoneURL,
-                mixdownURL: mixdownURL,
+                mixdown: mixdown,
                 displayFileName: activeCaptureSession.outputFileSet.displayFileName
             )
             self.activeCaptureSession = nil
@@ -191,6 +199,17 @@ public actor DualTrackRecorder {
         }
 
         return RecorderError.captureFailed("\(fallback) \(error.localizedDescription)")
+    }
+
+    private func normalizeMixdown(_ error: Error) -> RecorderError {
+        if let recorderError = error as? RecorderError,
+           case .mixdownFailed = recorderError {
+            return recorderError
+        }
+
+        return RecorderError.mixdownFailed(
+            "Could not create the mixdown. \(error.localizedDescription)"
+        )
     }
 
     public func dismiss() async throws {

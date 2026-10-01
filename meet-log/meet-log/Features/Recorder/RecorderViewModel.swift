@@ -307,11 +307,11 @@ final class RecorderViewModel: ObservableObject {
     }
 
     func revealCompletionInFinder() {
-        guard let completion else {
+        guard let revealURL = completion?.revealURL else {
             return
         }
 
-        FinderReveal.reveal(fileURL: completion.mixdownURL)
+        FinderReveal.reveal(fileURL: revealURL)
     }
 
     func openMicrophoneSettings() {
@@ -676,12 +676,28 @@ struct RecorderWaveform: Equatable, Sendable {
 struct RecordingCompletion: Equatable, Identifiable {
     let id = UUID()
     let duration: Duration
-    let mixdownURL: URL
+    let mixdown: RecordingMixdownOutcome
+    let systemAudioURL: URL?
+    let microphoneURL: URL?
     let displayFileName: String
+
+    var revealURL: URL? {
+        mixdown.url ?? systemAudioURL ?? microphoneURL
+    }
+
+    var warningMessage: String? {
+        guard mixdown.error != nil else {
+            return nil
+        }
+
+        return "The source tracks were saved, but the mix could not be created. Open Library to create the mix again."
+    }
 
     init(result: RecordingResult) {
         duration = result.duration
-        mixdownURL = result.mixdownURL
+        mixdown = result.mixdown
+        systemAudioURL = result.systemAudioURL
+        microphoneURL = result.microphoneURL
         displayFileName = result.displayFileName
     }
 }

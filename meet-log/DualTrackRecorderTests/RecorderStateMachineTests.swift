@@ -10,7 +10,7 @@ struct RecorderStateMachineTests {
             duration: .seconds(12),
             systemAudioURL: nil,
             microphoneURL: nil,
-            mixdownURL: URL(fileURLWithPath: "/tmp/meeting.m4a"),
+            mixdown: .mixed(URL(fileURLWithPath: "/tmp/meeting.m4a")),
             displayFileName: "meeting"
         )
 
