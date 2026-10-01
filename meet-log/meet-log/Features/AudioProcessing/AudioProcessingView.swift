@@ -174,6 +174,14 @@ struct AudioProcessingView: View {
                 isBusy: true,
                 cancelAction: { viewModel.cancel() }
             )
+        case let .summaryProgress(_, _, progress):
+            StatusRow(
+                systemImage: "text.magnifyingglass",
+                title: "Summarizing",
+                message: progress.message,
+                isBusy: true,
+                cancelAction: { viewModel.cancel() }
+            )
         case .completed(_, _, _):
             StatusRow(
                 systemImage: "checkmark.circle.fill",
@@ -241,7 +249,7 @@ struct AudioProcessingView: View {
             case .failed:
                 EmptyView()
             }
-        case .idle, .loading, .transcribing, .summarizing, .failed, .cancelled:
+        case .idle, .loading, .transcribing, .summarizing, .summaryProgress, .failed, .cancelled:
             EmptyView()
         }
     }

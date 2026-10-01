@@ -51,7 +51,9 @@ nonisolated struct AudioProcessingJob: Sendable {
                     try Task.checkCancellation()
                     continuation.yield(.summarizing(item, transcript))
 
-                    let summaryResult = await summaryService.summarize(transcript)
+                    let summaryResult = await summaryService.summarize(transcript) { progress in
+                        continuation.yield(.summaryProgress(item, transcript, progress))
+                    }
                     try Task.checkCancellation()
 
                     switch summaryResult {

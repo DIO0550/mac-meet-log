@@ -17,6 +17,10 @@ struct FoundationModelsSummaryService: TranscriptSummaryService {
     nonisolated func summarize(_ transcript: TranscriptResult) async -> TranscriptSummaryResult {
         await service.summarize(transcript)
     }
+
+    nonisolated func summarize(_ transcript: TranscriptResult, progress: SummaryProgressHandler) async -> TranscriptSummaryResult {
+        await service.summarize(transcript, progress: progress)
+    }
 }
 
 @available(macOS 26.0, *)

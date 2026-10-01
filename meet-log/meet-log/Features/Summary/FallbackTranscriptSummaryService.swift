@@ -10,13 +10,17 @@ struct FallbackTranscriptSummaryService: TranscriptSummaryService {
     }
 
     nonisolated func summarize(_ transcript: TranscriptResult) async -> TranscriptSummaryResult {
-        let result = await primary.summarize(transcript)
+        await summarize(transcript, progress: { _ in })
+    }
+
+    nonisolated func summarize(_ transcript: TranscriptResult, progress: SummaryProgressHandler) async -> TranscriptSummaryResult {
+        let result = await primary.summarize(transcript, progress: progress)
 
         switch result {
         case .summarized, .failed:
             return result
         case .unavailable:
-            return await fallback.summarize(transcript)
+            return await fallback.summarize(transcript, progress: progress)
         }
     }
 }

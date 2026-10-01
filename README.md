@@ -21,7 +21,7 @@ When a Mac cannot summarize with Foundation Models, the app keeps the transcript
 ### Known Limits
 
 - Supported import formats are intentionally limited to `mp3`, `m4a`, and `wav`.
-- Long transcripts may exceed the current summary prompt limit.
+- Foundation Models uses bounded inputs for long transcripts; a single unbroken word beyond the input limit is reported instead of truncated.
 - The newer SpeechAnalyzer path is availability-gated and only used where Apple's runtime supports it.
 - The app does not fall back to network transcription when on-device speech recognition is unavailable.
 
@@ -49,3 +49,21 @@ merged by start time, including overlapping speech, and the labels are supplied
 to summary generation for action-item ownership. If either source track is
 missing or silent, the recording falls back to the existing single-audio
 transcription path. Imported audio files also keep the single-audio path.
+
+### Long meeting summaries
+
+Foundation Models summaries above 24,000 characters are split at sentence or
+utterance (newline) boundaries, with word boundaries used for longer sentences.
+Chunks do not overlap. Every chunk is summarized, then the intermediate summaries
+are integrated in bounded groups until one meeting summary remains. Integration
+merges repeated topics/tasks; an additional deterministic pass removes duplicates
+while preserving distinct owners/deadlines and topic details.
+
+Both the import screen and Library display completed chunks and integration
+progress. Any chunk or integration failure fails the whole summary with its
+position/reason; partial summaries are never saved as complete. The transcript
+remains available. Oversized words or intermediate outputs, and outputs that
+cannot be reduced within the input limit, produce an explicit retryable error.
+Short transcripts keep the existing single-call path. The existing extractive
+fallback remains available without Apple Intelligence and accepts long text
+without a model prompt limit.

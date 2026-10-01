@@ -5,6 +5,7 @@ nonisolated enum AudioProcessingJobState: Equatable, Sendable {
     case loading
     case transcribing(AudioImportItem, partialTranscript: String?)
     case summarizing(AudioImportItem, TranscriptResult)
+    case summaryProgress(AudioImportItem, TranscriptResult, SummaryProgress)
     case completed(AudioImportItem, TranscriptResult, TranscriptSummaryResult)
     case failed(AudioImportItem?, AudioProcessingError, transcript: TranscriptResult?)
     case cancelled(AudioImportItem?)
@@ -15,6 +16,7 @@ nonisolated enum AudioProcessingJobState: Equatable, Sendable {
             return nil
         case let .transcribing(item, _),
              let .summarizing(item, _),
+             let .summaryProgress(item, _, _),
              let .completed(item, _, _):
             return item
         case let .failed(item, _, _),
@@ -26,6 +28,7 @@ nonisolated enum AudioProcessingJobState: Equatable, Sendable {
     var transcript: TranscriptResult? {
         switch self {
         case let .summarizing(_, transcript),
+             let .summaryProgress(_, transcript, _),
              let .completed(_, transcript, _):
             return transcript
         case let .failed(_, _, transcript):

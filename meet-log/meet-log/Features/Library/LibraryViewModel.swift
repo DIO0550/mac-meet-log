@@ -22,6 +22,7 @@ final class LibraryViewModel: ObservableObject {
         case loadingSaved
         case transcribing
         case summarizing
+        case summaryProgress(SummaryProgress)
         case summarized(MeetingSummary)
         case unavailable(String)
         case failed(String)
@@ -123,7 +124,7 @@ final class LibraryViewModel: ObservableObject {
 
     var isSummaryBusy: Bool {
         switch summaryState {
-        case .loadingSaved, .transcribing, .summarizing:
+        case .loadingSaved, .transcribing, .summarizing, .summaryProgress:
             return true
         case .idle, .summarized, .unavailable, .failed:
             return false
@@ -198,7 +199,10 @@ final class LibraryViewModel: ObservableObject {
                 self.transcript = transcript
                 try await summaryStore.save(transcript, for: item)
                 summaryState = .summarizing
-                await handleSummaryResult(await summaryService.summarize(transcript), for: item)
+                let result = await summaryService.summarize(transcript) { [weak self] progress in
+                    await self?.updateSummaryProgress(progress, for: item)
+                }
+                await handleSummaryResult(result, for: item)
             } catch {
                 summaryState = .failed(error.localizedDescription)
             }
@@ -261,6 +265,13 @@ final class LibraryViewModel: ObservableObject {
         } catch {
             state = .failed(error.localizedDescription)
         }
+    }
+
+    private func updateSummaryProgress(_ progress: SummaryProgress, for item: RecordingLibraryItem) {
+        guard selectedItem?.id == item.id else {
+            return
+        }
+        summaryState = .summaryProgress(progress)
     }
 
     private func handleSummaryResult(_ result: TranscriptSummaryResult, for item: RecordingLibraryItem) async {

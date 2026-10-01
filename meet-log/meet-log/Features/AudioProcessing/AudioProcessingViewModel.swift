@@ -27,7 +27,7 @@ final class AudioProcessingViewModel: ObservableObject {
 
     var isProcessing: Bool {
         switch state {
-        case .loading, .transcribing, .summarizing:
+        case .loading, .transcribing, .summarizing, .summaryProgress:
             return true
         case .idle, .completed, .failed, .cancelled:
             return false
