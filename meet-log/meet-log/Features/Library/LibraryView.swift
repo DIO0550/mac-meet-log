@@ -255,6 +255,7 @@ private struct LibraryDetailPane: View {
                 VStack(alignment: .leading, spacing: 22) {
                     titleBlock(item)
                     actions
+                    transcriptSection
                     summarySection(item)
                     if let url = RecordingNoteStore().url(for: item.mixdownURL) {
                         SavedRecordingNotesView(url: url, duration: item.duration)
@@ -346,13 +347,11 @@ private struct LibraryDetailPane: View {
             }
             .buttonStyle(.bordered)
 
-            if !item.canRemix {
-                Button(action: viewModel.generateSummaryForSelectedItem) {
-                    Label("Summarize", systemImage: "text.badge.checkmark")
-                }
-                .buttonStyle(.bordered)
-                .disabled(viewModel.isSummaryBusy || !item.hasUsableMixdown)
+            Button(action: viewModel.generateSummaryForSelectedItem) {
+                Label("Summarize", systemImage: "text.badge.checkmark")
             }
+            .buttonStyle(.bordered)
+            .disabled(viewModel.isSummaryBusy || !item.hasTranscribableAudio)
 
             if case let .failed(message) = viewModel.playbackState {
                 Text(message)
@@ -369,6 +368,47 @@ private struct LibraryDetailPane: View {
             }
 
             Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var transcriptSection: some View {
+        if let transcript = viewModel.transcript {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Transcript")
+                    .font(.headline)
+
+                if transcript.segments.contains(where: { $0.speaker != nil }) {
+                    ForEach(Array(transcript.segments.enumerated()), id: \.offset) { entry in
+                        let segment = entry.element
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Text(segment.timeRangeText)
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                                .frame(width: 90, alignment: .leading)
+
+                            Text(segment.speaker?.displayName ?? "")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(segment.speaker == .me ? Color.green : Color.blue)
+                                .frame(width: 34, alignment: .leading)
+
+                            Text(segment.text)
+                                .font(.callout)
+                                .textSelection(.enabled)
+                        }
+                    }
+                } else {
+                    Text(transcript.text)
+                        .font(.callout)
+                        .textSelection(.enabled)
+                }
+            }
+            .padding(16)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
+            )
         }
     }
 
@@ -394,7 +434,7 @@ private struct LibraryDetailPane: View {
             case .loadingSaved:
                 SummaryMessageRow(systemImage: "clock", message: "Loading saved summary...")
             case .transcribing:
-                SummaryMessageRow(systemImage: "waveform", message: "Transcribing mixdown...")
+                SummaryMessageRow(systemImage: "waveform", message: "Transcribing available audio tracks...")
             case .summarizing:
                 SummaryMessageRow(systemImage: "text.magnifyingglass", message: "Generating summary...")
             case let .summarized(summary):
@@ -414,12 +454,8 @@ private struct LibraryDetailPane: View {
     }
 
     private func summaryIdleMessage(for item: RecordingLibraryItem) -> (systemImage: String, message: String) {
-        if item.canRemix {
-            return ("waveform.badge.plus", "Create a mix before summarizing.")
-        }
-
-        if item.hasMissingFiles {
-            return ("exclamationmark.triangle", "Mixdown file is missing.")
+        if !item.hasTranscribableAudio {
+            return ("exclamationmark.triangle", "No audio track is available.")
         }
 
         return ("text.badge.plus", "No summary saved yet.")

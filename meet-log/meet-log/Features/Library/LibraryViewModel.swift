@@ -45,10 +45,11 @@ final class LibraryViewModel: ObservableObject {
     }
     @Published private(set) var playbackState: MixdownPlaybackController.State = .stopped
     @Published private(set) var summaryState: SummaryState = .idle
+    @Published private(set) var transcript: TranscriptResult?
     @Published private(set) var remixState: RemixState = .idle
 
     private let store: RecordingLibraryStoring
-    private let transcriptionService: AudioTranscriptionService
+    private let trackAwareTranscriptionService: TrackAwareTranscriptionService
     private let summaryService: TranscriptSummaryService
     private let summaryStore: MeetingSummaryStoring
     private let mixdownService: RecordingLibraryMixdownServicing
@@ -86,7 +87,7 @@ final class LibraryViewModel: ObservableObject {
         mixdownService: RecordingLibraryMixdownServicing = RecordingMixdownService()
     ) {
         self.store = store
-        self.transcriptionService = transcriptionService
+        self.trackAwareTranscriptionService = TrackAwareTranscriptionService(service: transcriptionService)
         self.summaryService = summaryService
         self.summaryStore = summaryStore
         self.mixdownService = mixdownService
@@ -156,12 +157,13 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func loadSummaryForSelectedItem() {
-        guard let selectedItem, selectedItem.hasUsableMixdown else {
+        guard let selectedItem, selectedItem.hasTranscribableAudio else {
             summaryState = .idle
             return
         }
 
         let item = selectedItem
+        transcript = nil
         summaryState = .loadingSaved
 
         Task {
@@ -178,7 +180,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func generateSummaryForSelectedItem() {
-        guard let selectedItem, selectedItem.hasUsableMixdown else {
+        guard let selectedItem, selectedItem.hasTranscribableAudio else {
             summaryState = .idle
             return
         }
@@ -188,7 +190,12 @@ final class LibraryViewModel: ObservableObject {
 
         Task {
             do {
-                let transcript = try await transcriptionService.finalTranscript(audioURL: item.mixdownURL)
+                let transcript = try await trackAwareTranscriptionService.finalTranscript(
+                    systemAudioURL: item.existingSystemAudioURL,
+                    microphoneURL: item.existingMicrophoneURL,
+                    fallbackURL: item.hasUsableMixdown ? item.mixdownURL : nil
+                )
+                self.transcript = transcript
                 try await summaryStore.save(transcript, for: item)
                 summaryState = .summarizing
                 await handleSummaryResult(await summaryService.summarize(transcript), for: item)

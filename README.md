@@ -40,3 +40,12 @@ Notes are saved atomically as `<recording>_notes.json` beside the audio tracks
 when recording completes, including when mixdown fails. A missing sidecar means
 there are no notes; an unreadable sidecar is reported and preserved. If saving
 fails, keep the app open and use **Retry Saving Notes** before leaving the session.
+
+### Speaker-labeled transcripts
+
+Saved recordings with both source tracks are transcribed track by track. System
+audio is labeled **相手** and microphone audio is labeled **自分**; segments are
+merged by start time, including overlapping speech, and the labels are supplied
+to summary generation for action-item ownership. If either source track is
+missing or silent, the recording falls back to the existing single-audio
+transcription path. Imported audio files also keep the single-audio path.
