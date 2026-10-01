@@ -256,6 +256,10 @@ private struct LibraryDetailPane: View {
                     titleBlock(item)
                     actions
                     summarySection(item)
+                    if let url = RecordingNoteStore().url(for: item.mixdownURL) {
+                        SavedRecordingNotesView(url: url, duration: item.duration)
+                            .id(url)
+                    }
                     fileStatus(item)
                 }
                 .padding(28)

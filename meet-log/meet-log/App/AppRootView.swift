@@ -7,6 +7,7 @@ struct AppRootView: View {
         case audioProcessing
     }
 
+    @StateObject private var recorderViewModel = RecorderViewModel()
     @State private var destination: Destination = .recorder
 
     var body: some View {
@@ -14,7 +15,7 @@ struct AppRootView: View {
             switch destination {
             case .recorder:
                 ZStack(alignment: .topTrailing) {
-                    RecorderView()
+                    RecorderView(viewModel: recorderViewModel)
 
                     HStack(spacing: 10) {
                         Button {

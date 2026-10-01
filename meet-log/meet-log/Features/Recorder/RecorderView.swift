@@ -23,37 +23,47 @@ struct RecorderView: View {
     }
 
     var body: some View {
-        VStack(spacing: 14) {
-            header
-            timer
+        ScrollView {
+            VStack(spacing: 14) {
+                header
+                timer
 
-            RecorderLevelView(
-                level: viewModel.level,
-                waveform: viewModel.waveform,
-                isActive: viewModel.isRecording
-            )
-
-            if let error = viewModel.presentedError {
-                RecorderErrorBanner(
-                    error: error,
-                    settingsAction: viewModel.openMicrophoneSettings,
-                    dismissAction: viewModel.dismissError
+                RecorderLevelView(
+                    level: viewModel.level,
+                    waveform: viewModel.waveform,
+                    isActive: viewModel.isRecording
                 )
-            }
 
-            Spacer(minLength: 0)
+                if let error = viewModel.presentedError {
+                    RecorderErrorBanner(
+                        error: error,
+                        settingsAction: viewModel.openMicrophoneSettings,
+                        dismissAction: viewModel.dismissError
+                    )
+                }
 
-            if let completion = viewModel.completion {
-                RecordingCompleteView(
-                    completion: completion,
-                    revealAction: viewModel.revealCompletionInFinder,
-                    dismissAction: viewModel.dismiss
-                )
-            } else {
-                RecorderControls(viewModel: viewModel)
+                if viewModel.isRecording || viewModel.isPaused || viewModel.hasUnsavedNotes {
+                    LiveRecordingNotesView(viewModel: viewModel)
+                }
+
+                if let completion = viewModel.completion {
+                    RecordingCompleteView(
+                        completion: completion,
+                        revealAction: viewModel.revealCompletionInFinder,
+                        dismissAction: viewModel.dismiss
+                    )
+                    if !viewModel.hasUnsavedNotes,
+                       let trackURL = completion.revealURL,
+                       let url = RecordingNoteStore().url(for: trackURL) {
+                        SavedRecordingNotesView(url: url, duration: completion.duration)
+                            .id(url)
+                    }
+                } else {
+                    RecorderControls(viewModel: viewModel)
+                }
             }
+            .padding(18)
         }
-        .padding(18)
         .frame(width: 420, height: 680)
         .background(Color(nsColor: .windowBackgroundColor))
     }

@@ -21,6 +21,10 @@ final class RecorderViewModel: ObservableObject {
     @Published private(set) var systemAudioPermissionState: SourcePermissionState = .unknown
     @Published private(set) var microphonePermissionState: SourcePermissionState = .unknown
 
+    @Published private(set) var notes: [RecordingNote] = []
+    @Published private(set) var hasUnsavedNotes = false
+    private let now: () -> Date
+
     private let recorder: RecorderClient
     private var eventTask: Task<Void, Never>?
     private var microphoneDeviceTask: Task<Void, Never>?
@@ -32,7 +36,8 @@ final class RecorderViewModel: ObservableObject {
         self.init(recorder: RecorderClient())
     }
 
-    init(recorder: RecorderClient) {
+    init(recorder: RecorderClient, now: @escaping () -> Date = Date.init) {
+        self.now = now
         self.recorder = recorder
         refreshMicrophonePermissionState()
         subscribeToRecorderEvents()
@@ -78,7 +83,7 @@ final class RecorderViewModel: ObservableObject {
     }
 
     var canStart: Bool {
-        sources.hasAnyEnabledSource && !isPreparing && !isRecording && !isPaused && !isFinalizing
+        !hasUnsavedNotes && sources.hasAnyEnabledSource && !isPreparing && !isRecording && !isPaused && !isFinalizing
     }
 
     var canEditSources: Bool {
@@ -250,6 +255,7 @@ final class RecorderViewModel: ObservableObject {
                 try await dismissCompletedSessionIfNeeded()
                 try await prepareMicrophonePermissionIfNeeded()
                 completion = nil
+                notes = []
                 elapsed = .zero
                 recordingBaselineElapsed = .zero
                 recordingBaselineDate = nil
@@ -280,10 +286,15 @@ final class RecorderViewModel: ObservableObject {
             let result = try await self.recorder.stop()
             self.completion = RecordingCompletion(result: result)
             self.elapsed = result.duration
+            self.saveNotes()
         }
     }
 
     func dismiss() {
+        guard !hasUnsavedNotes else {
+            saveNotes()
+            return
+        }
         Task {
             do {
                 clearTransientPresentation()
@@ -299,6 +310,36 @@ final class RecorderViewModel: ObservableObject {
             } catch {
                 present(error: error)
             }
+        }
+    }
+
+    @discardableResult
+    func addNote(_ text: String) -> Bool {
+        guard isRecording || isPaused else {
+            return false
+        }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return false
+        }
+        updateElapsedFromBaseline()
+        let components = elapsed.components
+        let seconds = Double(components.seconds) + Double(components.attoseconds) / 1e18
+        notes.append(RecordingNote(elapsed: max(0, seconds), text: trimmed, createdAt: now()))
+        hasUnsavedNotes = true
+        return true
+    }
+
+    func saveNotes() {
+        guard hasUnsavedNotes, let trackURL = completion?.revealURL,
+              let url = RecordingNoteStore().url(for: trackURL) else {
+            return
+        }
+        do {
+            try RecordingNoteStore().save(notes, to: url)
+            hasUnsavedNotes = false
+        } catch {
+            presentNonFatal(error: error, title: "Notes could not be saved", message: error.localizedDescription)
         }
     }
 
@@ -433,6 +474,7 @@ final class RecorderViewModel: ObservableObject {
             completion = RecordingCompletion(result: result)
             elapsed = result.duration
             stopElapsedTimer()
+            saveNotes()
         case let .failed(error):
             present(error: error)
             stopElapsedTimer()
@@ -484,7 +526,7 @@ final class RecorderViewModel: ObservableObject {
     private func startElapsedTimer(from startedAt: Date, previousState: RecorderState) {
         if case .paused = previousState {
             recordingBaselineElapsed = elapsed
-            recordingBaselineDate = Date()
+            recordingBaselineDate = now()
         } else {
             recordingBaselineElapsed = .zero
             recordingBaselineDate = startedAt
@@ -511,7 +553,7 @@ final class RecorderViewModel: ObservableObject {
             return
         }
 
-        elapsed = recordingBaselineElapsed + .fromTimeInterval(Date().timeIntervalSince(recordingBaselineDate))
+        elapsed = recordingBaselineElapsed + .fromTimeInterval(now().timeIntervalSince(recordingBaselineDate))
     }
 
     private func dismissCompletedSessionIfNeeded() async throws {
