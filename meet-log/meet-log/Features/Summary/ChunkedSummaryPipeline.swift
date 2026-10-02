@@ -64,6 +64,9 @@ nonisolated struct ChunkedSummaryPipeline: Sendable {
         if source.segments.contains(where: { $0.speaker != nil }) {
             instructions += "\n話者ラベル（自分 / 相手）を担当者推定に使い、根拠がない担当者は推測しないでください。"
         }
+        if !source.screenSegments.isEmpty {
+            instructions += "\n" + SummaryPromptBuilder.screenInstructions
+        }
         if screen {
             instructions += "\n今回の入力全体は画面 OCR の補助資料です。音声の発言ではありません。全ての情報を画面由来と明記し、発言・決定として扱わないでください。"
         }

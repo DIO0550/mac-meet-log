@@ -30,9 +30,11 @@ struct SummaryPromptBuilder: Sendable {
             ? "話者ラベル（自分 / 相手）を担当者推定に使い、根拠がない担当者は推測しないでください。\n"
             : ""
 
+        let screenInstruction = transcript.screenSegments.isEmpty ? "" : Self.screenInstructions
+
         return .success(
             SummaryPrompt(
-                instructions: template.instructions + "\n" + speakerInstruction + Self.screenInstructions,
+                instructions: template.instructions + "\n" + speakerInstruction + screenInstruction,
                 prompt: Self.prompt(
                     transcriptText: trimmedText,
                     localeIdentifier: transcript.localeIdentifier,
