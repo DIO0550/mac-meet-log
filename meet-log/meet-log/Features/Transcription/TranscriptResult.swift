@@ -1,6 +1,6 @@
 import Foundation
 
-enum TranscriptSpeaker: String, Codable, Equatable, Sendable {
+nonisolated enum TranscriptSpeaker: String, Codable, Equatable, Sendable {
     case me
     case other
 
@@ -14,26 +14,57 @@ enum TranscriptSpeaker: String, Codable, Equatable, Sendable {
     }
 }
 
-struct TranscriptResult: Codable, Equatable, Sendable {
+nonisolated struct TranscriptResult: Codable, Equatable, Sendable {
     let text: String
     let localeIdentifier: String
     let sourceURL: URL
     let segments: [TranscriptSegment]
+    let screenSegments: [ScreenTranscriptSegment]
+    let screenOCRReport: ScreenOCRReport?
 
     nonisolated init(
         text: String,
         localeIdentifier: String,
         sourceURL: URL,
-        segments: [TranscriptSegment] = []
+        segments: [TranscriptSegment] = [],
+        screenSegments: [ScreenTranscriptSegment] = [],
+        screenOCRReport: ScreenOCRReport? = nil
     ) {
         self.text = text
         self.localeIdentifier = localeIdentifier
         self.sourceURL = sourceURL
         self.segments = segments
+        self.screenSegments = screenSegments
+        self.screenOCRReport = screenOCRReport
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case text, localeIdentifier, sourceURL, segments, screenSegments, screenOCRReport
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        text = try values.decode(String.self, forKey: .text)
+        localeIdentifier = try values.decode(String.self, forKey: .localeIdentifier)
+        sourceURL = try values.decode(URL.self, forKey: .sourceURL)
+        segments = try values.decodeIfPresent([TranscriptSegment].self, forKey: .segments) ?? []
+        screenSegments = try values.decodeIfPresent([ScreenTranscriptSegment].self, forKey: .screenSegments) ?? []
+        screenOCRReport = try values.decodeIfPresent(ScreenOCRReport.self, forKey: .screenOCRReport)
+    }
+
+    var screenText: String {
+        screenSegments.map { "[画面 OCR \($0.timeRangeText)] \($0.text)" }.joined(separator: "\n")
+    }
+
+    var summaryInputText: String {
+        guard !screenSegments.isEmpty else {
+            return text
+        }
+        return "[音声]\n\(text)\n\n[画面 OCR・補助情報]\n\(screenText)"
     }
 }
 
-struct TranscriptSegment: Codable, Equatable, Sendable {
+nonisolated struct TranscriptSegment: Codable, Equatable, Sendable {
     let text: String
     let timestamp: TimeInterval
     let duration: TimeInterval

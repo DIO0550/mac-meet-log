@@ -22,6 +22,7 @@ final class LibraryViewModel: ObservableObject {
         case idle
         case loadingSaved
         case transcribing
+        case recognizingScreen
         case summarizing
         case summaryProgress(SummaryProgress)
         case summarized(MeetingSummary)
@@ -47,6 +48,7 @@ final class LibraryViewModel: ObservableObject {
     }
     @Published private(set) var playbackState: MixdownPlaybackController.State = .stopped
     @Published private(set) var summaryState: SummaryState = .idle
+    @Published private(set) var screenOCRWarning: String?
     @Published private(set) var transcript: TranscriptResult?
     @Published private(set) var remixState: RemixState = .idle
     @Published var selectedSummaryTemplateID = SummaryTemplate.builtIn.id
@@ -62,6 +64,7 @@ final class LibraryViewModel: ObservableObject {
 
     private let store: RecordingLibraryStoring
     private let trackAwareTranscriptionService: TrackAwareTranscriptionService
+    private let screenEnricher: ScreenTranscriptEnricher
     private let summaryService: TranscriptSummaryService
     private let summaryStore: MeetingSummaryStoring
     private let mixdownService: RecordingLibraryMixdownServicing
@@ -100,10 +103,12 @@ final class LibraryViewModel: ObservableObject {
         summaryService: TranscriptSummaryService,
         summaryStore: MeetingSummaryStoring,
         mixdownService: RecordingLibraryMixdownServicing = RecordingMixdownService(),
-        searchService: LibrarySearchService? = nil
+        searchService: LibrarySearchService? = nil,
+        screenOCRService: ScreenOCRServicing = ScreenOCRService()
     ) {
         self.store = store
         self.trackAwareTranscriptionService = TrackAwareTranscriptionService(service: transcriptionService)
+        self.screenEnricher = ScreenTranscriptEnricher(service: screenOCRService)
         self.summaryService = summaryService
         self.summaryStore = summaryStore
         self.mixdownService = mixdownService
@@ -152,7 +157,7 @@ final class LibraryViewModel: ObservableObject {
 
     var isSummaryBusy: Bool {
         switch summaryState {
-        case .loadingSaved, .transcribing, .summarizing, .summaryProgress:
+        case .loadingSaved, .transcribing, .recognizingScreen, .summarizing, .summaryProgress:
             return true
         case .idle, .summarized, .unavailable, .failed:
             return false
@@ -193,6 +198,7 @@ final class LibraryViewModel: ObservableObject {
 
         let item = selectedItem
         transcript = nil
+        screenOCRWarning = nil
         summaryState = .loadingSaved
 
         Task {
@@ -217,15 +223,24 @@ final class LibraryViewModel: ObservableObject {
 
         let item = selectedItem
         summaryState = .transcribing
+        screenOCRWarning = nil
 
         Task {
             do {
-                let transcript = try await trackAwareTranscriptionService.finalTranscript(
+                var transcript = try await trackAwareTranscriptionService.finalTranscript(
                     systemAudioURL: item.existingSystemAudioURL,
                     microphoneURL: item.existingMicrophoneURL,
                     fallbackURL: item.hasUsableMixdown ? item.mixdownURL : nil,
                     locale: Locale(identifier: AppSettings.shared.preferences.localeIdentifier)
                 )
+                if let videoURL = item.existingScreenCaptureURL {
+                    summaryState = .recognizingScreen
+                    do {
+                        transcript = try await screenEnricher.enrich(transcript, videoURL: videoURL)
+                    } catch {
+                        screenOCRWarning = "画面テキストを抽出できませんでした。音声の処理を続けます: \(error.localizedDescription)"
+                    }
+                }
                 self.transcript = transcript
                 try await summaryStore.save(transcript, for: item)
                 summaryState = .summarizing

@@ -146,7 +146,7 @@ struct PromptedTranscriptSummaryService: TranscriptSummaryService {
             return .unavailable(unavailableReason)
         }
 
-        if transcript.text.trimmingCharacters(in: .whitespacesAndNewlines).count > promptBuilder.characterLimit {
+        if transcript.summaryInputText.trimmingCharacters(in: .whitespacesAndNewlines).count > promptBuilder.characterLimit {
             do {
                 let summary = try await ChunkedSummaryPipeline(promptBuilder: promptBuilder, generator: generator)
                     .summarize(transcript, progress: progress)

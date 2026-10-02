@@ -197,7 +197,7 @@ struct LibrarySearchService: Sendable {
         }
 
         if let transcript {
-            appendMatch(section: .transcript, text: transcript.text, query: query, to: &matches)
+            appendMatch(section: .transcript, text: transcript.summaryInputText, query: query, to: &matches)
         }
 
         let noteText = notes.map(\.text).joined(separator: "\n")

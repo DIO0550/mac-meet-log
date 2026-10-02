@@ -182,6 +182,9 @@ struct MeetingExportFormatter {
         }
         if sections.contains(.transcript), let transcript = document.transcript {
             output.append(markdownTranscript(transcript))
+            if !transcript.screenSegments.isEmpty {
+                output.append("## 画面テキスト（OCR・補助情報）\n\n" + transcript.screenText)
+            }
         }
         if sections.contains(.notes), !document.notes.isEmpty {
             output.append(
@@ -210,6 +213,9 @@ struct MeetingExportFormatter {
         }
         if sections.contains(.transcript), let transcript = document.transcript {
             output.append(plainTextTranscript(transcript))
+            if !transcript.screenSegments.isEmpty {
+                output.append("画面テキスト（OCR・補助情報）\n" + transcript.screenText)
+            }
         }
         if sections.contains(.notes), !document.notes.isEmpty {
             output.append(

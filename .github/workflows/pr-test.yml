@@ -23,8 +23,14 @@ jobs:
 
       - name: Run all shared scheme tests
         run: |
+          rm -f /tmp/mac-meet-log-screen-ocr-benchmark.txt
           xcodebuild test \
             -project meet-log/meet-log.xcodeproj \
             -scheme meet-log \
             -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO
+
+      - name: Report screen OCR benchmark
+        run: |
+          cat /tmp/mac-meet-log-screen-ocr-benchmark.txt
+          cat /tmp/mac-meet-log-screen-ocr-benchmark.txt >> "$GITHUB_STEP_SUMMARY"

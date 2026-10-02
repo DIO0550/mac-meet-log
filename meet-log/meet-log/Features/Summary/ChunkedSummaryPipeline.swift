@@ -8,13 +8,19 @@ nonisolated struct ChunkedSummaryPipeline: Sendable {
         _ transcript: TranscriptResult,
         progress: SummaryProgressHandler
     ) async throws -> MeetingSummary {
-        let chunks = try TranscriptChunker(characterLimit: promptBuilder.characterLimit).split(transcript.text)
+        let chunker = TranscriptChunker(characterLimit: promptBuilder.characterLimit)
+        let audioChunks = try chunker.split(transcript.text)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { (text: $0, screen: false) }
+        let screenChunks = try chunker.split(transcript.screenText)
+            .filter { !$0.isEmpty }.map { (text: $0, screen: true) }
+        let chunks = audioChunks + screenChunks
         var summaries: [MeetingSummary] = []
         await progress(.chunk(completed: 0, total: chunks.count))
-        for (index, text) in chunks.enumerated() {
+        for (index, chunk) in chunks.enumerated() {
             try Task.checkCancellation()
             do {
-                summaries.append(try await generate(text, source: transcript, integrating: false))
+                summaries.append(try await generate(chunk.text, source: transcript, integrating: false, screen: chunk.screen))
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -53,12 +59,18 @@ nonisolated struct ChunkedSummaryPipeline: Sendable {
         }
     }
 
-    private func generate(_ text: String, source: TranscriptResult, integrating: Bool) async throws -> MeetingSummary {
+    private func generate(_ text: String, source: TranscriptResult, integrating: Bool, screen: Bool = false) async throws -> MeetingSummary {
         let input = TranscriptResult(text: text, localeIdentifier: source.localeIdentifier, sourceURL: source.sourceURL)
         let base = try promptBuilder.makePrompt(for: input).get()
         var instructions = base.instructions
         if source.segments.contains(where: { $0.speaker != nil }) {
             instructions += "\n話者ラベル（自分 / 相手）を担当者推定に使い、根拠がない担当者は推測しないでください。"
+        }
+        if !source.screenSegments.isEmpty {
+            instructions += "\n" + SummaryPromptBuilder.screenInstructions
+        }
+        if screen {
+            instructions += "\n今回の入力全体は画面 OCR の補助資料です。音声の発言ではありません。全ての情報を画面由来と明記し、発言・決定として扱わないでください。"
         }
         if integrating {
             instructions += "\n入力は同じ会議の時系列の中間要約です。全てを横断して統合し、同じトピックや同一担当・期限の同じタスクを一つにまとめてください。異なる詳細・決定・担当者・期限を捨てず、原文にない事実を追加しないでください。"
