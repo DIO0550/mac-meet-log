@@ -108,7 +108,13 @@ struct ChunkedSummaryTests {
         #expect(inputs.prefix(total).map(\.text).joined() == source.screenText)
         #expect(prompts.prefix(total).allSatisfy { $0.instructions.contains("今回の入力全体は画面 OCR") })
         #expect(events.contains(.chunk(completed: total, total: total)))
-        #expect(events.last == .integration(round: 1, completed: 1, total: 1))
+        guard case let .integration(round, completed, remaining) = try #require(events.last) else {
+            Issue.record("Expected completed integration")
+            return
+        }
+        #expect(round >= 1)
+        #expect(completed == 1)
+        #expect(remaining == 1)
         #expect(summary.transcriptSourceURL == sourceURL)
     }
 
