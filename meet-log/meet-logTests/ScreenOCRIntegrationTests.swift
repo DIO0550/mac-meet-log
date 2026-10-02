@@ -18,7 +18,9 @@ struct ScreenOCRIntegrationTests {
         #expect(result.report.recognizedFrames == 2)
         // Loose regression bound, including cold Vision model initialization on hosted CI.
         #expect(result.report.elapsedSeconds < 120)
-        print("SCREEN_OCR_BENCHMARK video=60s resolution=960x540 samples=\(result.report.sampledFrames) OCR=\(result.report.recognizedFrames) elapsed=\(result.report.elapsedSeconds)s")
+        let measurement = "SCREEN_OCR_BENCHMARK video=60s resolution=960x540 samples=\(result.report.sampledFrames) OCR=\(result.report.recognizedFrames) elapsed=\(result.report.elapsedSeconds)s"
+        print(measurement)
+        try measurement.write(to: URL(fileURLWithPath: "/tmp/mac-meet-log-screen-ocr-benchmark.txt"), atomically: true, encoding: .utf8)
     }
 
     private nonisolated func makeVideo(at url: URL) async throws {
