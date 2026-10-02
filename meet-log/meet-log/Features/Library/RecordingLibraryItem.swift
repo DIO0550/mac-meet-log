@@ -5,6 +5,16 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
         case mixdown = "mix"
         case systemAudio = "system"
         case microphone
+        case screen
+
+        var fileExtension: String {
+            switch self {
+            case .screen:
+                "mp4"
+            case .mixdown, .systemAudio, .microphone:
+                "m4a"
+            }
+        }
     }
 
     enum MixdownStatus: Equatable, Sendable {
@@ -21,6 +31,7 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
     let mixdownURL: URL
     let systemAudioURL: URL?
     let microphoneURL: URL?
+    let screenCaptureURL: URL?
     let fileExistence: RecordingLibraryFileExistence
     let mixdownStatus: MixdownStatus
 
@@ -37,22 +48,35 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
     }
 
     var sourceSummary: String {
-        switch (systemAudioURL != nil, microphoneURL != nil) {
-        case (true, true):
-            return "System audio + microphone"
-        case (true, false):
-            return "System audio only"
-        case (false, true):
-            return "Microphone only"
-        case (false, false):
-            return "Mixdown only"
+        if systemAudioURL == nil, microphoneURL == nil, screenCaptureURL != nil {
+            if fileExistence.mixdownExists {
+                return "Mixdown + screen"
+            }
+            return "Screen only"
         }
+
+        let audioSummary = switch (systemAudioURL != nil, microphoneURL != nil) {
+        case (true, true):
+            "System audio + microphone"
+        case (true, false):
+            "System audio only"
+        case (false, true):
+            "Microphone only"
+        case (false, false):
+            "Mixdown only"
+        }
+        if screenCaptureURL != nil {
+            return "\(audioSummary) + screen"
+        }
+
+        return audioSummary
     }
 
     var hasMissingFiles: Bool {
         mixdownStatus == .unavailable
             || (systemAudioURL != nil && !fileExistence.systemAudioExists)
             || (microphoneURL != nil && !fileExistence.microphoneExists)
+            || (screenCaptureURL != nil && !fileExistence.screenCaptureExists)
     }
 
     var hasUsableMixdown: Bool {
@@ -83,6 +107,14 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
         return microphoneURL
     }
 
+    var existingScreenCaptureURL: URL? {
+        guard fileExistence.screenCaptureExists else {
+            return nil
+        }
+
+        return screenCaptureURL
+    }
+
     init(
         id: String,
         title: String,
@@ -91,6 +123,7 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
         mixdownURL: URL,
         systemAudioURL: URL?,
         microphoneURL: URL?,
+        screenCaptureURL: URL? = nil,
         fileExistence: RecordingLibraryFileExistence,
         sessionDirectoryURL: URL? = nil,
         mixdownStatus: MixdownStatus? = nil
@@ -103,6 +136,7 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
         self.mixdownURL = mixdownURL
         self.systemAudioURL = systemAudioURL
         self.microphoneURL = microphoneURL
+        self.screenCaptureURL = screenCaptureURL
         self.fileExistence = fileExistence
         self.mixdownStatus = mixdownStatus ?? (fileExistence.mixdownExists ? .mixed : .unavailable)
     }
@@ -149,23 +183,31 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
             directoryURL: directoryURL,
             directoryContents: directoryContents
         )
+        let screenCaptureURL = Self.optionalTrackURL(
+            stem: stem,
+            kind: .screen,
+            directoryURL: directoryURL,
+            directoryContents: directoryContents
+        )
         let mixdownExists = directoryContents.contains("\(stem)_\(TrackKind.mixdown.rawValue).m4a")
             && fileManager.fileExists(atPath: mixdownURL.path)
         let systemAudioExists = systemAudioURL.map { fileManager.fileExists(atPath: $0.path) } ?? false
         let microphoneExists = microphoneURL.map { fileManager.fileExists(atPath: $0.path) } ?? false
+        let screenCaptureExists = screenCaptureURL.map { fileManager.fileExists(atPath: $0.path) } ?? false
 
-        guard mixdownExists || systemAudioExists || microphoneExists else {
+        guard mixdownExists || systemAudioExists || microphoneExists || screenCaptureExists else {
             return nil
         }
 
         let existence = RecordingLibraryFileExistence(
             mixdownExists: mixdownExists,
             systemAudioExists: systemAudioExists,
-            microphoneExists: microphoneExists
+            microphoneExists: microphoneExists,
+            screenCaptureExists: screenCaptureExists
         )
         let durationURL = mixdownExists
             ? mixdownURL
-            : (systemAudioURL ?? microphoneURL)
+            : (systemAudioURL ?? microphoneURL ?? screenCaptureURL)
         let createdAt = Self.date(from: stem)
             ?? durationURL.flatMap { try? fileManager.attributesOfItem(atPath: $0.path)[.creationDate] as? Date }
             ?? .now
@@ -178,9 +220,14 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
             mixdownURL: mixdownURL,
             systemAudioURL: systemAudioURL,
             microphoneURL: microphoneURL,
+            screenCaptureURL: screenCaptureURL,
             fileExistence: existence,
             sessionDirectoryURL: directoryURL,
-            mixdownStatus: mixdownExists ? .mixed : .needsMix
+            mixdownStatus: Self.mixdownStatus(
+                mixdownExists: mixdownExists,
+                systemAudioExists: systemAudioExists,
+                microphoneExists: microphoneExists
+            )
         )
     }
 
@@ -189,7 +236,7 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
     }
 
     static func stem(fromFileName fileName: String, kind: TrackKind) -> String? {
-        let suffix = "_\(kind.rawValue).m4a"
+        let suffix = "_\(kind.rawValue).\(kind.fileExtension)"
         guard fileName.hasSuffix(suffix) else {
             return nil
         }
@@ -213,12 +260,28 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
         directoryURL: URL,
         directoryContents: Set<String>
     ) -> URL? {
-        let fileName = "\(stem)_\(kind.rawValue).m4a"
+        let fileName = "\(stem)_\(kind.rawValue).\(kind.fileExtension)"
         guard directoryContents.contains(fileName) else {
             return nil
         }
 
         return directoryURL.appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    private static func mixdownStatus(
+        mixdownExists: Bool,
+        systemAudioExists: Bool,
+        microphoneExists: Bool
+    ) -> MixdownStatus {
+        if mixdownExists {
+            return .mixed
+        }
+
+        if systemAudioExists || microphoneExists {
+            return .needsMix
+        }
+
+        return .unavailable
     }
 
     private static func date(from stem: String) -> Date? {
@@ -260,6 +323,19 @@ struct RecordingLibraryFileExistence: Equatable, Sendable {
     let mixdownExists: Bool
     let systemAudioExists: Bool
     let microphoneExists: Bool
+    let screenCaptureExists: Bool
+
+    init(
+        mixdownExists: Bool,
+        systemAudioExists: Bool,
+        microphoneExists: Bool,
+        screenCaptureExists: Bool = false
+    ) {
+        self.mixdownExists = mixdownExists
+        self.systemAudioExists = systemAudioExists
+        self.microphoneExists = microphoneExists
+        self.screenCaptureExists = screenCaptureExists
+    }
 }
 
 protocol RecordingDurationProviding: Sendable {

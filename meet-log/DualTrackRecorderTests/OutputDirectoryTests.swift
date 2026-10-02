@@ -33,9 +33,11 @@ struct OutputDirectoryTests {
         #expect(fileSet.mixdownURL.lastPathComponent == "2024-01-01_12-00-05_mix.m4a")
         #expect(fileSet.systemAudioURL.lastPathComponent == "2024-01-01_12-00-05_system.m4a")
         #expect(fileSet.microphoneURL.lastPathComponent == "2024-01-01_12-00-05_microphone.m4a")
+        #expect(fileSet.screenCaptureURL.lastPathComponent == "2024-01-01_12-00-05_screen.mp4")
         #expect(fileSet.mixdownURL.deletingLastPathComponent() == sessionDirectoryURL)
         #expect(fileSet.systemAudioURL.deletingLastPathComponent() == sessionDirectoryURL)
         #expect(fileSet.microphoneURL.deletingLastPathComponent() == sessionDirectoryURL)
+        #expect(fileSet.screenCaptureURL.deletingLastPathComponent() == sessionDirectoryURL)
     }
 
     @Test func duplicateSessionDirectoryThrowsInsteadOfReusingFolder() throws {

@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import DualTrackRecorder
 import Foundation
@@ -260,6 +261,14 @@ final class LibraryViewModel: ObservableObject {
         }
 
         LibraryFinder.reveal(fileURL: selectedItem.mixdownURL)
+    }
+
+    func openSelectedScreenCapture() {
+        guard let url = selectedItem?.existingScreenCaptureURL else {
+            return
+        }
+
+        NSWorkspace.shared.open(url)
     }
 
     func exportDocumentForSelectedItem() -> MeetingExportDocument? {

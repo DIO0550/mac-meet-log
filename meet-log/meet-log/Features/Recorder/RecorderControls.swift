@@ -9,6 +9,7 @@ struct RecorderControls: View {
             sourceToggles
             sourceAccessButtons
             microphonePicker
+            screenCapturePicker
             commandButtons
         }
     }
@@ -32,6 +33,15 @@ struct RecorderControls: View {
             ) {
                 viewModel.setMicrophoneEnabled(!viewModel.sources.microphoneEnabled)
             }
+
+            SourceToggleButton(
+                title: "Screen",
+                systemImage: "rectangle.inset.filled.and.person.filled",
+                isOn: viewModel.sources.screenCaptureEnabled,
+                isDisabled: !viewModel.canEditSources
+            ) {
+                viewModel.setScreenCaptureEnabled(!viewModel.sources.screenCaptureEnabled)
+            }
         }
     }
 
@@ -54,6 +64,16 @@ struct RecorderControls: View {
                     isRequesting: viewModel.isRequestingMicrophonePermission,
                     isDisabled: !viewModel.canRequestMicrophonePermission,
                     action: viewModel.requestMicrophonePermission
+                )
+            }
+
+            if viewModel.shouldShowScreenCapturePermissionRequest {
+                SourceAccessButton(
+                    title: screenCaptureAccessTitle,
+                    systemImage: "rectangle.on.rectangle.badge.person.crop",
+                    isRequesting: viewModel.isRequestingScreenCapturePermission,
+                    isDisabled: !viewModel.canRequestScreenCapturePermission,
+                    action: viewModel.requestScreenCapturePermission
                 )
             }
         }
@@ -106,6 +126,55 @@ struct RecorderControls: View {
                 .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
         )
         .opacity(viewModel.sources.microphoneEnabled ? 1 : 0.58)
+    }
+
+    @ViewBuilder
+    private var screenCapturePicker: some View {
+        if viewModel.sources.screenCaptureEnabled {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Label("Screen capture", systemImage: "rectangle.on.rectangle")
+                        .font(.callout.weight(.medium))
+
+                    Spacer(minLength: 0)
+
+                    if viewModel.isLoadingScreenCaptureTargets {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+
+                Picker(
+                    "Screen capture",
+                    selection: Binding(
+                        get: { viewModel.selectedScreenCaptureTargetID ?? "" },
+                        set: viewModel.selectScreenCaptureTarget
+                    )
+                ) {
+                    if viewModel.screenCaptureTargets.isEmpty {
+                        Text("No capture target available").tag("")
+                    }
+
+                    ForEach(viewModel.screenCaptureTargets) { target in
+                        Text(target.detail.isEmpty ? target.name : "\(target.name) — \(target.detail)")
+                            .tag(target.id)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .disabled(!viewModel.canEditSources || viewModel.screenCaptureTargets.isEmpty)
+
+                Text("15 fps · up to 1920×1080 · no live preview")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+            )
+        }
     }
 
     @ViewBuilder
@@ -164,6 +233,18 @@ struct RecorderControls: View {
         }
 
         return "Mic Access"
+    }
+
+    private var screenCaptureAccessTitle: String {
+        if viewModel.isRequestingScreenCapturePermission {
+            return "Requesting Screen"
+        }
+
+        if viewModel.screenCapturePermissionState == .blocked {
+            return "Screen Settings"
+        }
+
+        return "Screen Access"
     }
 
     private var microphonePickerHelp: String {

@@ -6,6 +6,9 @@ final class FakeRecorderHarness {
     let baseURL: URL
     private var microphoneCaptures = [FakeAudioCapture()]
     var systemAudioCapture = FakeAudioCapture()
+    var screenCapture = FakeScreenCapture()
+    var screenCaptureTargets = [ScreenCaptureTarget.previewDisplay]
+    var screenCapturePermissionGranted = true
     var microphoneDeviceProvider = FakeMicrophoneDeviceProvider(devices: AudioInputDevice.previewDevices)
     var mixdownExporter = FakeMixdownExporter()
     private(set) var requestedOutputDirectoryURL: URL?
@@ -60,10 +63,57 @@ final class FakeRecorderHarness {
                 return capture
             },
             systemAudioCaptureFactory: { [systemAudioCapture] _ in systemAudioCapture },
+            screenCaptureFactory: { [screenCapture] _, _, _ in screenCapture },
+            screenCaptureTargets: { [screenCaptureTargets] in screenCaptureTargets },
+            requestScreenCapturePermission: { [screenCapturePermissionGranted] in screenCapturePermissionGranted },
             microphoneDeviceProvider: microphoneDeviceProvider,
             mixdownExporter: mixdownExporter
         )
     }
+}
+
+final class FakeScreenCapture: ScreenCapturing {
+    var startError: RecorderError?
+    var stopError: RecorderError?
+    var outputURL = URL(fileURLWithPath: "/tmp/fake-screen.mp4")
+    private(set) var startCount = 0
+    private(set) var pauseCount = 0
+    private(set) var resumeCount = 0
+    private(set) var stopCount = 0
+
+    func start() async throws {
+        startCount += 1
+        if let startError {
+            throw startError
+        }
+    }
+
+    func pause() {
+        pauseCount += 1
+    }
+
+    func resume() {
+        resumeCount += 1
+    }
+
+    func stop() async throws -> URL {
+        stopCount += 1
+        if let stopError {
+            throw stopError
+        }
+        return outputURL
+    }
+}
+
+extension ScreenCaptureTarget {
+    static let previewDisplay = ScreenCaptureTarget(
+        id: "display:1",
+        kind: .display,
+        name: "Display 1",
+        pixelWidth: 1_920,
+        pixelHeight: 1_080,
+        displayID: 1
+    )
 }
 
 final class FakeAudioCapture: AudioCapture {

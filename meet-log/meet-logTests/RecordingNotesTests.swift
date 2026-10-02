@@ -62,7 +62,7 @@ struct RecordingNotesTests {
                                      mixdown: .mixed(track), displayFileName: track.lastPathComponent)
         let (events, continuation) = AsyncStream<RecorderEvent>.makeStream()
         defer { continuation.finish() }
-        let client = RecorderClient(events: events, microphoneDevices: { [] }, start: { _, _ in },
+        let client = RecorderClient(events: events, microphoneDevices: { [] }, start: { _, _, _ in },
                                     pause: {}, resume: {}, stop: { result }, dismiss: {},
                                     switchMicrophoneInput: { _ in })
         let baseline = Date(timeIntervalSince1970: 1_800_000_000)

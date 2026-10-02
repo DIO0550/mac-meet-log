@@ -1,11 +1,11 @@
 # meet-log — 開発計画
 
-> ステータス: MVP 実装統合済み / build 通過
-> 最終更新: 2026-05-18
+> ステータス: MVP 実装統合済み / 画面収録まで拡張
+> 最終更新: 2026-10-02
 
 ## 概要
 
-macOS 上で会議の「システム音声 + マイク」を同時録音するネイティブアプリ。出力は音声ファイルのみ（動画なし）。ライブラリ/管理機能は持たず、録音そのものに集中する最小構成。段階的に拡張する。
+macOS 上で会議の「システム音声 + マイク」を同時録音するネイティブアプリ。MVP後の拡張として、任意で画面・ウィンドウ・アプリを別動画ファイルへ収録できる。段階的に拡張する。
 
 ## MVP スコープ
 
@@ -27,7 +27,7 @@ macOS 上で会議の「システム音声 + マイク」を同時録音する�
 - Share
 - メータースタイル切替（4種）
 - 保存先の変更 UI
-- 動画キャプチャ・画面範囲選択（Full / Window / Area）
+- 画面内の任意矩形（Area）指定（画面全体 / Window / Application は後続機能として実装）
 
 ## 実装状況（2026-05-18）
 
@@ -41,14 +41,16 @@ macOS 上で会議の「システム音声 + マイク」を同時録音する�
 | 項目 | 決定 | 補足 |
 |---|---|---|
 | 最小 macOS | 14.2+ | Core Audio Process Tap の要件 |
-| システム音声取得 | Core Audio Process Tap（`CATapDescription` / `AudioHardwareCreateProcessTap`） | サードパーティのループバックドライバ（BlackHole 等）は不使用。画面録画権限も不要 |
+| システム音声取得 | Core Audio Process Tap（`CATapDescription` / `AudioHardwareCreateProcessTap`） | サードパーティのループバックドライバ（BlackHole 等）は不使用。音声のみなら画面録画権限は不要 |
+| 画面収録 | ScreenCaptureKit（任意） | 画面全体 / Window / Application。TCCの画面収録許可が必要。拒否時も音声録音は継続 |
+| 画面動画 | H.264 / 15 fps / 最大1920×1080 / 4 Mbps | 約1.8 GB/時。長時間負荷を避けるためプレビューなし |
 | マイク取得 | AVAudioEngine | |
 | ミックス戦略 | 2トラック並行保存 + stop 時に mixdown | 「自分の声が大きすぎ / 小さすぎ」のリカバリ余地を残す |
 | 永続化 | なし | ライブラリ廃止により DB / メタデータ層は不要。ファイル管理は Finder 任せ |
 | 出力先 | `~/Music/meet-log/`（固定） | 変更可能化は後フェーズ |
 | UI フレームワーク | SwiftUI | |
 
-供給網方針: サードパーティ / 野良ツール・ドライバを排除。Process Tap はこの方針と整合（ドライバ不要のため）。
+供給網方針: サードパーティ / 野良ツール・ドライバを排除。Process TapとScreenCaptureKitはいずれもApple公式フレームワークで、この方針と整合する。画面収録を有効にした場合だけTCCの画面収録許可を要求する。
 
 ## Apple 公式文字起こし / 要約方針
 
@@ -65,7 +67,7 @@ mp3 などの録音済み音声ファイルから文字起こしと要約を行�
 - 単一 `.xcodeproj`（Workspace は使わない）
 - ターゲット構成（すべて 1 プロジェクト内）:
   - **アプリ本体** `meet-log`（SwiftUI）→ コア framework を embed
-  - **コア framework** `DualTrackRecorder`（SwiftUI 非依存。Foundation + CoreAudio + AVFoundation のみ）
+  - **コア framework** `DualTrackRecorder`（SwiftUI 非依存。Foundation + CoreAudio + AVFoundation + ScreenCaptureKit）
   - （任意）`DualTrackRecorder` の unit test ターゲット
 - 境界方針: core から UI を import 不能にする（コンパイラ強制の clean-arch 境界）。Process Tap + ミックスという最もコケやすい層を framework 側に隔離する。
 - 命名方針: アプリ = 目的名（`meet-log`）、コア = メカニズム名（`DualTrackRecorder`）。レイヤごとに命名スコープを噛み合わせる。
@@ -74,8 +76,8 @@ mp3 などの録音済み音声ファイルから文字起こしと要約を行�
 
 - この統合作業では unit test は実行していない。実行対象は build sanity のみ。
 - 実機での長時間録音、マイク TCC、Process Tap の権限 / entitlement 挙動、生成ファイルの音質確認は未実施。
-- 保存先は MVP 方針どおり固定で、保存先変更 UI は未実装。
-- ライブラリ、タグ、共有、録音履歴などの管理機能は後フェーズ。
+- 画面収録は実機のディスプレイ構成、権限変更後の再起動、長時間の容量・同期を追加確認する。
+- タグ、お気に入り、グルーピングなどの整理機能は後フェーズ。
 
 ## 要確認
 
