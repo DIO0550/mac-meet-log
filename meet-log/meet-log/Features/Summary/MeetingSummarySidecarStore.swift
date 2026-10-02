@@ -293,6 +293,9 @@ enum TranscriptMarkdownCodec {
                 """
             )
         }
+        if !transcript.screenSegments.isEmpty {
+            sections.append("## Screen OCR (auxiliary)\n\n" + transcript.screenText)
+        }
         if let data = try? JSONEncoder().encode(transcript) {
             sections.append("<!-- transcript-data: \(data.base64EncodedString()) -->")
         }

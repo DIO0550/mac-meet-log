@@ -62,6 +62,14 @@ struct ScreenOCRTests {
         #expect(try JSONDecoder().decode(TranscriptResult.self, from: JSONEncoder().encode(output)) == output)
     }
 
+    @Test func screenLayerRoundTripsThroughMarkdownSidecar() throws {
+        let input = transcript(screen: "Project ID 1234")
+        let markdown = TranscriptMarkdownCodec.encode(input, recordingID: "recording")
+        #expect(markdown.contains("## Screen OCR (auxiliary)"))
+        #expect(markdown.contains("Project ID 1234"))
+        #expect(try TranscriptMarkdownCodec.decode(markdown) == input)
+    }
+
     @Test func legacyTranscriptDecodesWithoutScreenLayer() throws {
         let json = #"{"text":"old audio","localeIdentifier":"en-US","sourceURL":"file:///tmp/old.m4a","segments":[]}"#
         let result = try JSONDecoder().decode(TranscriptResult.self, from: Data(json.utf8))
