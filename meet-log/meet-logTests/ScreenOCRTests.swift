@@ -5,19 +5,26 @@ import Testing
 struct ScreenOCRTests {
     @Test func unchangedFramesAndNoiseSkipRecognition() {
         var detector = ScreenFrameChangeDetector()
-        #expect(detector.shouldRecognize([UInt8](repeating: 100, count: 1000), at: 0))
+        let recognized1 = detector.shouldRecognize([UInt8](repeating: 100, count: 1000), at: 0)
+        #expect(recognized1)
         for second in stride(from: 2, through: 14_400, by: 2) {
-            #expect(!detector.shouldRecognize([UInt8](repeating: 101, count: 1000), at: Double(second)))
+            let recognized2 = detector.shouldRecognize([UInt8](repeating: 101, count: 1000), at: Double(second))
+            #expect(!recognized2)
         }
     }
 
     @Test func intervalAndAccumulatedChangesUseLastRecognizedFrame() {
         var detector = ScreenFrameChangeDetector(minimumInterval: 2, changedPixelFraction: 0.1)
-        #expect(detector.shouldRecognize([0, 0, 0, 0], at: 0))
-        #expect(!detector.shouldRecognize([50, 0, 0, 0], at: 1))
-        #expect(detector.shouldRecognize([50, 0, 0, 0], at: 2))
-        #expect(!detector.shouldRecognize([60, 0, 0, 0], at: 4))
-        #expect(detector.shouldRecognize([75, 0, 0, 0], at: 6))
+        let recognized3 = detector.shouldRecognize([0, 0, 0, 0], at: 0)
+        #expect(recognized3)
+        let recognized4 = detector.shouldRecognize([50, 0, 0, 0], at: 1)
+        #expect(!recognized4)
+        let recognized5 = detector.shouldRecognize([50, 0, 0, 0], at: 2)
+        #expect(recognized5)
+        let recognized6 = detector.shouldRecognize([60, 0, 0, 0], at: 4)
+        #expect(!recognized6)
+        let recognized7 = detector.shouldRecognize([75, 0, 0, 0], at: 6)
+        #expect(recognized7)
     }
 
     @Test func duplicateTextCollapsesButBlankScreenEndsItsInterval() {
