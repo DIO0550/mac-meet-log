@@ -76,6 +76,42 @@ struct ChunkedSummaryTests {
         #expect(await generator.prompts.last?.instructions.contains("横断して統合") == true)
     }
 
+    @Test(arguments: ["", " \n\t "])
+    func longScreenOnlyTranscriptCompletesWithoutEmptyAudioChunk(audioText: String) async throws {
+        let generator = RecordingSummaryGenerator()
+        let progress = SummaryProgressRecorder()
+        let source = TranscriptResult(
+            text: audioText,
+            localeIdentifier: "ja-JP",
+            sourceURL: sourceURL,
+            screenSegments: [ScreenTranscriptSegment(
+                text: String(repeating: "screen words ", count: 100), timestamp: 0, duration: 60
+            )]
+        )
+        #expect(source.summaryInputText.count > 200)
+        let result = await service(generator: generator, limit: 200).summarize(source) {
+            await progress.append($0)
+        }
+        guard case let .summarized(summary) = result else {
+            Issue.record("Expected a screen-only summary, received \(result)")
+            return
+        }
+        let inputs = await generator.inputs
+        let prompts = await generator.prompts
+        let events = await progress.values
+        guard case let .chunk(_, total) = try #require(events.first) else {
+            Issue.record("Expected chunk progress")
+            return
+        }
+        #expect(total > 1)
+        #expect(inputs.allSatisfy { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+        #expect(inputs.prefix(total).map(\.text).joined() == source.screenText)
+        #expect(prompts.prefix(total).allSatisfy { $0.instructions.contains("今回の入力全体は画面 OCR") })
+        #expect(events.contains(.chunk(completed: total, total: total)))
+        #expect(events.last == .integration(round: 1, completed: 1, total: 1))
+        #expect(summary.transcriptSourceURL == sourceURL)
+    }
+
     @Test func integrationUsesMultipleBoundedRounds() async {
         let generator = RecordingSummaryGenerator()
         let progress = SummaryProgressRecorder()

@@ -581,7 +581,7 @@ private struct LibraryDetailPane: View {
             case .transcribing:
                 SummaryMessageRow(systemImage: "waveform", message: "Transcribing available audio tracks...")
             case .recognizingScreen:
-                SummaryMessageRow(systemImage: "text.viewfinder", message: "画面の変化を調べて文字を抽出しています…")
+                SummaryMessageRow(systemImage: "text.viewfinder", message: "Extracting text from screen changes...")
             case .summarizing:
                 SummaryMessageRow(systemImage: "text.magnifyingglass", message: "Generating summary...")
             case let .summaryProgress(progress):

@@ -9,7 +9,9 @@ nonisolated struct ChunkedSummaryPipeline: Sendable {
         progress: SummaryProgressHandler
     ) async throws -> MeetingSummary {
         let chunker = TranscriptChunker(characterLimit: promptBuilder.characterLimit)
-        let audioChunks = try chunker.split(transcript.text).map { (text: $0, screen: false) }
+        let audioChunks = try chunker.split(transcript.text)
+            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .map { (text: $0, screen: false) }
         let screenChunks = try chunker.split(transcript.screenText)
             .filter { !$0.isEmpty }.map { (text: $0, screen: true) }
         let chunks = audioChunks + screenChunks
