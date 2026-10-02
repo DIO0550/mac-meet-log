@@ -372,6 +372,7 @@ private struct LibraryDetailPane: View {
                     titleBlock(item)
                     actions
                     transcriptSection
+                    ScreenTranscriptView(transcript: viewModel.transcript, warning: viewModel.screenOCRWarning)
                     summarySection(item)
                     if let url = RecordingNoteStore().url(for: item.mixdownURL) {
                         SavedRecordingNotesView(url: url, duration: item.duration)
@@ -579,6 +580,8 @@ private struct LibraryDetailPane: View {
                 SummaryMessageRow(systemImage: "clock", message: "Loading saved summary...")
             case .transcribing:
                 SummaryMessageRow(systemImage: "waveform", message: "Transcribing available audio tracks...")
+            case .recognizingScreen:
+                SummaryMessageRow(systemImage: "text.viewfinder", message: "画面の変化を調べて文字を抽出しています…")
             case .summarizing:
                 SummaryMessageRow(systemImage: "text.magnifyingglass", message: "Generating summary...")
             case let .summaryProgress(progress):

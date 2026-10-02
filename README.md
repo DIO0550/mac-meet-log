@@ -91,3 +91,33 @@ without a model prompt limit.
 - 録音・再生・サイドカーファイルの保存を妨げないよう、使用した保存先のアクセスはアプリ終了まで維持します。保存先が利用できない場合は設定で選び直してください。
 - 既定のマイクはデバイスUIDで保持し、未接続の場合はシステムの既定に戻ります。録音中の設定変更は録音終了後に反映します。
 - 言語変更は次に開始する文字起こしから適用します。要約タブには標準会議テンプレートを表示します。テンプレートの追加・編集は #26 で拡張します。
+
+### Screen text (OCR)
+
+When generating a summary for a recording with a screen video, meet-log runs
+Vision OCR **after audio transcription**, off the UI thread. No external OCR
+service or model is used. Audio-only recordings skip this step entirely. OCR
+failure is displayed as a warning and does not discard the audio transcript.
+
+The fixed initial policy samples one frame every **2 seconds** (also the minimum
+OCR interval). It compares a 320×180 grayscale thumbnail against the last frame
+sent to OCR; recognition runs when at least **0.2%** of pixels change by **20/255**
+or more. Comparing to the last recognized frame catches accumulating changes.
+This sampling policy can miss brief slides or very small edits; it is not a
+frame-exact archive. The original screen video remains available. OCR uses the
+transcription locale, with English for technical terms/URLs; unsupported Vision
+languages report a warning rather than silently switching languages.
+
+Screen text is saved as separate timestamped `screenSegments` in the transcript
+sidecar. Consecutive identical text is collapsed, while a blank screen ends the
+previous segment. The library, search and export include this layer, and summary
+prompts mark it as auxiliary screen information, never as spoken decisions.
+Long inputs chunk audio and screen content separately to preserve provenance.
+
+Each result stores sampled frames, OCR calls and wall-clock processing seconds,
+shown below the screen text. `ScreenOCRIntegrationTests` generates a 60-second,
+960×540 two-slide video, exercises AVFoundation + Vision, and prints a
+`SCREEN_OCR_BENCHMARK` measurement in macOS CI. This synthetic measurement is not
+an on-device long-meeting benchmark; actual cost depends on how often the screen
+changes. Frames are processed one at a time, so image memory does not grow with
+recording length. No OCR controls are exposed in Settings in this first version.
