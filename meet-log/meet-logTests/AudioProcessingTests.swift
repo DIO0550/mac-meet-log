@@ -323,7 +323,8 @@ private func makeSummary() -> MeetingSummary {
 }
 
 private func waitUntil(
-    timeout: Duration = .seconds(1),
+    // Parallel macOS tests can occupy the main actor during framework initialization.
+    timeout: Duration = .seconds(5),
     condition: @escaping @MainActor @Sendable () -> Bool
 ) async throws {
     let deadline = ContinuousClock.now + timeout
