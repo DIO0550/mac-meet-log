@@ -6,6 +6,21 @@ import Testing
 
 @MainActor
 struct RecordingRecoveryTests {
+    @Test func activeSessionIsNotOfferedOrRecoveredByAnotherWindow() async throws {
+        let root = try directory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let session = try makeSession(in: root)
+        var lease: RecordingSessionLease? = try RecordingSessionLease(directory: session.directory)
+        #expect(try RecordingRecoveryStore.interrupted(in: root).isEmpty)
+        do {
+            _ = try await RecordingRecoveryStore().recover(session)
+            Issue.record("An active session must not be recovered")
+        } catch RecordingSessionLease.LeaseError.busy { }
+        withExtendedLifetime(lease) { }
+        lease = nil
+        #expect(try RecordingRecoveryStore.interrupted(in: root).count == 1)
+    }
+
     @Test func scanFindsInterruptedAndCorruptButNotCompletedOrLegacySessions() throws {
         let root = try directory()
         defer { try? FileManager.default.removeItem(at: root) }

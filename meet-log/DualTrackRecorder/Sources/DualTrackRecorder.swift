@@ -10,6 +10,7 @@ public actor DualTrackRecorder {
     private var journal: RecordingJournal?
     private var journalDirectory: URL?
     private var checkpointTask: Task<Void, Never>?
+    private var sessionLease: RecordingSessionLease?
 
     public var currentSessionDirectory: URL? { journalDirectory }
 
@@ -44,6 +45,7 @@ public actor DualTrackRecorder {
         checkpointTask?.cancel()
         journal = nil
         journalDirectory = nil
+        sessionLease = nil
 
         do {
             activeCaptureSession = try await makeCaptureSession(
@@ -64,6 +66,7 @@ public actor DualTrackRecorder {
         } catch {
             activeCaptureSession?.stopImmediately()
             activeCaptureSession = nil
+            sessionLease = nil
             let recorderError = normalize(error, fallback: "Could not start recording.")
             publish(await session.fail(with: recorderError))
             throw recorderError
@@ -208,6 +211,7 @@ public actor DualTrackRecorder {
         let outputDirectory = dependencies.outputDirectoryFactory(outputDirectoryURL)
         let startDate = await session.startDate ?? Date()
         let outputFileSet = try outputDirectory.fileSet(for: startDate)
+        sessionLease = try RecordingSessionLease(directory: outputFileSet.sessionDirectoryURL)
         let stem = outputFileSet.mixdownURL.deletingPathExtension().lastPathComponent.dropLast(4)
         let newJournal = RecordingJournal(startedAt: startDate, stem: String(stem), sources: sources)
         try newJournal.save(in: outputFileSet.sessionDirectoryURL)
@@ -302,6 +306,7 @@ public actor DualTrackRecorder {
 
     public func dismiss() async throws {
         let state = try await session.dismiss()
+        sessionLease = nil
         publish(state)
     }
 

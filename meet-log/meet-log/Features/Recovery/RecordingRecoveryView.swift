@@ -1,4 +1,5 @@
 import SwiftUI
+import DualTrackRecorder
 
 struct RecordingRecoveryView: View {
     let sessions: [InterruptedRecording]

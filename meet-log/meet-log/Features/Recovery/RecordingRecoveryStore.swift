@@ -46,6 +46,7 @@ actor RecordingRecoveryStore {
                     return nil
                 }
                 do {
+                    guard try !RecordingSessionLease.isActive(in: directory) else { return nil }
                     let journal = try RecordingJournal.load(in: directory)
                     let recovered = directory.appendingPathComponent("recovered")
                     if let report = try? loadReport(in: recovered), report.sessionID == journal.id { return nil }
@@ -93,6 +94,8 @@ actor RecordingRecoveryStore {
         guard let journal = session.journal else { throw CocoaError(.fileReadCorruptFile) }
         guard recovering.insert(session.directory).inserted else { throw CocoaError(.fileWriteFileExists) }
         defer { recovering.remove(session.directory) }
+        let lease = try RecordingSessionLease(directory: session.directory)
+        defer { withExtendedLifetime(lease) { } }
         let destination = session.recoveredDirectory
         if FileManager.default.fileExists(atPath: destination.path) {
             let report = try Self.loadReport(in: destination)
@@ -166,7 +169,7 @@ actor RecordingRecoveryStore {
 
     nonisolated static func segmentRange(_ url: URL) -> Range<TimeInterval>? {
         guard url.pathExtension == "m4a" else { return nil }
-        let pieces = url.deletingPathExtension().lastPathComponent.split(separator: "-")
+        let pieces = url.deletingPathExtension().lastPathComponent.split(separator: "-", omittingEmptySubsequences: false)
         guard pieces.count == 2, let start = Double(pieces[0]), let end = Double(pieces[1]),
               start.isFinite, end.isFinite, start >= 0, end > start else { return nil }
         return (start / 1_000_000)..<(end / 1_000_000)
