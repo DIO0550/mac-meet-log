@@ -3,6 +3,7 @@ import SwiftUI
 struct SavedRecordingNotesView: View {
     let url: URL
     let duration: Duration?
+    var seek: ((Double) -> Void)? = nil
     @State private var notes: [RecordingNote] = []
     @State private var text = ""
     @State private var seconds = 0.0
@@ -22,7 +23,7 @@ struct SavedRecordingNotesView: View {
             }
             ForEach(notes) { note in
                 HStack(alignment: .top) {
-                    Text(note.timestamp).monospacedDigit().foregroundStyle(.secondary)
+                    PlaybackTimestampButton(title: note.timestamp, seconds: note.elapsed, seek: seek)
                     Text(note.text).textSelection(.enabled)
                     Spacer()
                     Button("Edit") {
