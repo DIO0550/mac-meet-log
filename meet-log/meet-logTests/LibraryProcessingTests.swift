@@ -4,6 +4,165 @@ import Testing
 
 @MainActor
 struct LibraryProcessingTests {
+    @Test func savedEditsReachReloadSearchExportAndSummaryOnly() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try await fixture.seed()
+        let model = fixture.model()
+        await model.load()
+        try await settled(model)
+        model.beginTranscriptEditing()
+        model.editDraft?.segmentTexts[0] = "corrected terminology"
+        model.editDraft?.screenTexts[0] = "corrected screen"
+        #expect(model.transcript == fixture.original)
+        await model.saveEdits()
+        #expect(model.editError == nil)
+        #expect(model.editDraft == nil)
+        let edited = try #require(model.transcript)
+        #expect(edited.text == "自分: corrected terminology")
+        #expect(edited.segments[0].timestamp == 2)
+        #expect(model.summaryInputWarning != nil)
+        let reloaded = fixture.model()
+        await reloaded.load()
+        try await settled(reloaded)
+        #expect(reloaded.transcript == edited)
+        let document = try #require(reloaded.exportDocumentForSelectedItem())
+        let markdown = MeetingExportFormatter().markdown(for: document, sections: [.transcript])
+        #expect(markdown.contains("corrected terminology"))
+        #expect(markdown.contains("corrected screen"))
+        model.searchQuery = "corrected terminology"
+        try await waitFor { @MainActor in model.searchProgress?.isComplete == true }
+        #expect(model.searchResults.map(\.item.id) == [fixture.item.id])
+        reloaded.runProcessing(.summary)
+        try await settled(reloaded)
+        #expect(reloaded.processingConfirmation == nil)
+        #expect(await fixture.services.summaryInputs.first == edited)
+        #expect(await fixture.services.speechCalls == 0)
+        #expect(await fixture.services.ocrCalls == 0)
+    }
+
+    @Test func summaryEditingSupportsLegacyIDsAndRegenerationConfirmation() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try await fixture.seed()
+        try await fixture.storage.save(MeetingSummary(
+            summary: "old", topics: [MeetingTopic(title: "old topic")],
+            actionItems: [MeetingActionItem(title: "old todo")], transcriptSourceURL: fixture.item.mixdownURL,
+            createdAt: Date(timeIntervalSince1970: 1000)
+        ), for: fixture.item)
+        let model = fixture.model()
+        await model.load()
+        try await settled(model)
+        model.beginSummaryEditing()
+        model.editDraft?.text = "corrected summary"
+        model.editDraft?.topics[0].title = "corrected topic"
+        model.editDraft?.actionItems[0].owner = "corrected owner, second owner"
+        model.editDraft?.actionItems[0].dueDateText = "next Friday"
+        await model.saveEdits()
+        #expect(model.editError == nil)
+        let edited = try #require(model.savedSummary)
+        #expect(edited.editedAt != nil)
+        model.loadSummaryForSelectedItem()
+        try await settled(model)
+        #expect(model.savedSummary == edited)
+        model.searchQuery = "second owner"
+        try await waitFor { @MainActor in model.searchProgress?.isComplete == true }
+        #expect(model.searchResults.map(\.item.id) == [fixture.item.id])
+        #expect(model.exportDocumentForSelectedItem()?.summary == edited)
+        model.runProcessing(.summary)
+        try await settled(model)
+        #expect(model.processingConfirmation != nil)
+        #expect(await fixture.services.totalCalls == 0)
+        model.cancelProcessingConfirmation()
+        #expect(model.savedSummary == edited)
+        model.runProcessing(.summary)
+        try await settled(model)
+        model.confirmProcessingOverwrite()
+        try await settled(model)
+        #expect(model.savedSummary?.summary == "new summary")
+        #expect(model.savedSummary?.editedAt == nil)
+    }
+
+    @Test(arguments: [true, false])
+    func editCancellationAndFailedSaveKeepOriginalAndDraft(editTranscript: Bool) async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try await fixture.seed()
+        let model = fixture.model(storage: FailingSaveStore(base: fixture.storage))
+        await model.load()
+        try await settled(model)
+        if editTranscript {
+            model.beginTranscriptEditing()
+            model.editDraft?.segmentTexts[0] = "correction"
+        } else {
+            model.beginSummaryEditing()
+            model.editDraft?.text = "correction"
+        }
+        let draft = model.editDraft
+        model.select(fixture.other)
+        #expect(model.selectedItem?.id == fixture.item.id)
+        model.loadSummaryForSelectedItem()
+        model.runProcessing(.all)
+        #expect(model.editDraft == draft)
+        #expect(await fixture.services.totalCalls == 0)
+        await model.saveEdits()
+        #expect(model.editError != nil)
+        #expect(model.editDraft == draft)
+        #expect(!model.isSavingEdits)
+        #expect(model.transcript == fixture.original)
+        #expect(model.savedSummary == fixture.summary)
+        model.discardEdits()
+        #expect(model.editDraft == nil)
+        #expect(try await fixture.storage.transcript(for: fixture.item) == fixture.original)
+        #expect(try await fixture.storage.summary(for: fixture.item) == fixture.summary)
+    }
+
+    @Test func stageRerunsConfirmOnlyAffectedManualLayers() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try await fixture.seed()
+        let model = fixture.model()
+        await model.load()
+        try await settled(model)
+        model.beginTranscriptEditing()
+        model.editDraft?.segmentTexts[0] = "audio edit"
+        model.editDraft?.screenTexts[0] = "screen edit"
+        await model.saveEdits()
+        let audioEditDate = model.transcript?.audioEditedAt
+        model.runProcessing(.screenOCR)
+        try await settled(model)
+        #expect(model.processingConfirmation?.message.contains("画面OCR") == true)
+        #expect(await fixture.services.ocrCalls == 0)
+        model.confirmProcessingOverwrite()
+        try await settled(model)
+        #expect(model.transcript?.audioEditedAt == audioEditDate)
+        #expect(model.transcript?.screenEditedAt == nil)
+        #expect(model.transcript?.text == "自分: audio edit")
+        model.runProcessing(.transcription)
+        try await settled(model)
+        #expect(model.processingConfirmation?.message.contains("音声") == true)
+        #expect(await fixture.services.speechCalls == 0)
+        model.cancelProcessingConfirmation()
+        #expect(model.transcript?.text == "自分: audio edit")
+    }
+
+    @Test func externalChangeDuringEditingIsNotOverwritten() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try await fixture.seed()
+        let model = fixture.model()
+        await model.load()
+        try await settled(model)
+        model.beginTranscriptEditing()
+        model.editDraft?.segmentTexts[0] = "local edit"
+        let external = TranscriptResult(text: "external", localeIdentifier: "ja-JP", sourceURL: fixture.item.mixdownURL)
+        try await fixture.storage.save(external, for: fixture.item)
+        await model.saveEdits()
+        #expect(model.editError != nil)
+        #expect(model.editDraft?.segmentTexts[0] == "local edit")
+        #expect(try await fixture.storage.transcript(for: fixture.item) == external)
+    }
+
     @Test func summaryOnlyUsesSavedManualEditsWithoutSpeechOrOCR() async throws {
         let fixture = try Fixture(audio: false)
         defer { fixture.remove() }
