@@ -32,8 +32,8 @@ struct RecordingRecoveryTests {
         _ = try directory(in: root, name: "legacy")
         let sessions = try RecordingRecoveryStore.interrupted(in: root)
         #expect(sessions.count == 2)
-        #expect(sessions.contains { $0.id == pending.id && $0.journal != nil })
-        #expect(sessions.contains { $0.id == corrupt && $0.error != nil })
+        #expect(sessions.contains { $0.id.path == pending.id.path && $0.journal != nil })
+        #expect(sessions.contains { $0.id.path == corrupt.path && $0.error != nil })
         #expect(try Data(contentsOf: corrupt.appendingPathComponent(RecordingJournal.fileName)) == Data("broken".utf8))
     }
 
@@ -66,7 +66,7 @@ struct RecordingRecoveryTests {
         let items = try await OutputDirectoryRecordingLibraryStore(outputDirectoryURL: root).recordings()
         #expect(items.count == 1)
         #expect(items.first?.sourceSummary == "Notes only")
-        #expect(items.first?.sessionDirectoryURL == session.recoveredDirectory)
+        #expect(items.first?.sessionDirectoryURL.path == session.recoveredDirectory.path)
     }
 
     @Test func failedRecoveryPreservesOriginalsAndCanBeRetried() async throws {

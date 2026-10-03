@@ -28,7 +28,15 @@ jobs:
             -project meet-log/meet-log.xcodeproj \
             -scheme meet-log \
             -destination 'platform=macOS' \
+            -resultBundlePath "$RUNNER_TEMP/meet-log-tests.xcresult" \
             CODE_SIGNING_ALLOWED=NO
+
+      - name: Report test failures
+        if: failure()
+        run: |
+          if [ -d "$RUNNER_TEMP/meet-log-tests.xcresult" ]; then
+            xcrun xcresulttool get test-results summary --path "$RUNNER_TEMP/meet-log-tests.xcresult"
+          fi
 
       - name: Report screen OCR benchmark
         run: |
