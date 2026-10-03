@@ -43,11 +43,15 @@ struct RecordingHealthTests {
         #expect(monitor.audioWarnings(at: 50) == [.noBuffers(.microphone)])
         monitor.receive(AudioLevelSnapshot(track: .microphone, peak: 0, rms: 0), at: 51)
         #expect(monitor.audioWarnings(at: 51).isEmpty)
-        #expect(monitor.shouldNotify(.microphoneDisconnected, at: 51))
-        #expect(!monitor.shouldNotify(.microphoneDisconnected, at: 110))
-        #expect(monitor.shouldNotify(.microphoneDisconnected, at: 111))
+        let firstNotice = monitor.shouldNotify(.microphoneDisconnected, at: 51)
+        let noticeBeforeCooldown = monitor.shouldNotify(.microphoneDisconnected, at: 110)
+        let noticeAfterCooldown = monitor.shouldNotify(.microphoneDisconnected, at: 111)
+        #expect(firstNotice)
+        #expect(!noticeBeforeCooldown)
+        #expect(noticeAfterCooldown)
         monitor.begin(sources: RecordingSources(), at: 112)
-        #expect(monitor.shouldNotify(.microphoneDisconnected, at: 112))
+        let noticeInNewSession = monitor.shouldNotify(.microphoneDisconnected, at: 112)
+        #expect(noticeInNewSession)
     }
 
     @Test func capacityBoundariesDependOnVideoAndUnknownIsNotHealthy() {
