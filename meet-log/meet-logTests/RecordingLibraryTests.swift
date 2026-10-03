@@ -308,11 +308,12 @@ struct RecordingLibraryTests {
         )
 
         await viewModel.load()
+        try await waitUntil { !viewModel.isSummaryBusy }
         viewModel.generateSummaryForSelectedItem()
-        try await waitUntil { viewModel.summaryState == .summarized(summary) }
+        try await waitUntil { viewModel.summaryState == .summarized(summary.recording(input: makeTranscript())) }
 
-        #expect(viewModel.summaryState == .summarized(summary))
-        #expect(summaryStore.savedSummary == summary)
+        #expect(viewModel.summaryState == .summarized(summary.recording(input: makeTranscript())))
+        #expect(summaryStore.savedSummary == summary.recording(input: makeTranscript()))
         #expect(summaryStore.savedTranscript == makeTranscript())
         #expect(summaryStore.savedItem == item)
     }
@@ -362,12 +363,13 @@ struct RecordingLibraryTests {
         )
 
         await viewModel.load()
+        try await waitUntil { !viewModel.isSummaryBusy }
         viewModel.generateSummaryForSelectedItem()
-        try await waitUntil { viewModel.summaryState == .summarized(summary) }
+        try await waitUntil { viewModel.summaryState == .summarized(summary.recording(input: expectedTranscript)) }
 
         #expect(viewModel.transcript == expectedTranscript)
         #expect(summaryStore.savedTranscript == expectedTranscript)
-        #expect(summaryStore.savedSummary == summary)
+        #expect(summaryStore.savedSummary == summary.recording(input: expectedTranscript))
         #expect(summaryStore.savedItem == item)
     }
 
@@ -382,6 +384,7 @@ struct RecordingLibraryTests {
         )
 
         await viewModel.load()
+        try await waitUntil { !viewModel.isSummaryBusy }
         viewModel.generateSummaryForSelectedItem()
         try await waitUntil {
             if case .failed = viewModel.summaryState {
@@ -411,6 +414,7 @@ struct RecordingLibraryTests {
         )
 
         await unavailableViewModel.load()
+        try await waitUntil { !unavailableViewModel.isSummaryBusy }
         unavailableViewModel.generateSummaryForSelectedItem()
         try await waitUntil {
             if case .unavailable = unavailableViewModel.summaryState {
@@ -421,6 +425,7 @@ struct RecordingLibraryTests {
         }
 
         await failedViewModel.load()
+        try await waitUntil { !failedViewModel.isSummaryBusy }
         failedViewModel.generateSummaryForSelectedItem()
         try await waitUntil {
             if case .failed = failedViewModel.summaryState {

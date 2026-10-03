@@ -32,7 +32,10 @@ struct MeetingSummarySidecarStore: MeetingSummaryStoring {
         do {
             let url = summaryURL(for: item)
             let markdown = MeetingSummaryMarkdownCodec.encode(summary, recordingID: item.id)
+            try Task.checkCancellation()
             try markdown.write(to: url, atomically: true, encoding: .utf8)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw SummaryError.persistenceFailed(error.localizedDescription)
         }
@@ -56,7 +59,10 @@ struct MeetingSummarySidecarStore: MeetingSummaryStoring {
         do {
             let url = transcriptURL(for: item)
             let markdown = TranscriptMarkdownCodec.encode(transcript, recordingID: item.id)
+            try Task.checkCancellation()
             try markdown.write(to: url, atomically: true, encoding: .utf8)
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             throw SummaryError.persistenceFailed(error.localizedDescription)
         }
@@ -84,7 +90,8 @@ enum MeetingSummaryMarkdownCodec {
                 createdAt: summary.createdAt,
                 transcriptSourceURL: summary.transcriptSourceURL,
                 templateID: summary.templateID,
-                templateName: summary.templateName
+                templateName: summary.templateName,
+                inputFingerprint: summary.inputFingerprint
             ),
             "## Summary\n\n\(summary.summary)"
         ]
@@ -126,7 +133,8 @@ enum MeetingSummaryMarkdownCodec {
             transcriptSourceURL: transcriptSourceURL(from: markdown),
             createdAt: createdAt(from: markdown) ?? .now,
             templateID: metadataValue(named: "Template ID", in: markdown),
-            templateName: metadataValue(named: "Template", in: markdown)
+            templateName: metadataValue(named: "Template", in: markdown),
+            inputFingerprint: metadataValue(named: "Input SHA256", in: markdown)
         )
     }
 
@@ -135,7 +143,8 @@ enum MeetingSummaryMarkdownCodec {
         createdAt: Date,
         transcriptSourceURL: URL?,
         templateID: String?,
-        templateName: String?
+        templateName: String?,
+        inputFingerprint: String?
     ) -> String {
         var lines = [
             "- Recording: \(recordingID)",
@@ -150,6 +159,10 @@ enum MeetingSummaryMarkdownCodec {
         }
         if let templateName {
             lines.append("- Template: \(templateName)")
+        }
+
+        if let inputFingerprint {
+            lines.append("- Input SHA256: \(inputFingerprint)")
         }
 
         return lines.joined(separator: "\n")
@@ -307,7 +320,19 @@ enum TranscriptMarkdownCodec {
         if let encoded = metadataValue(named: "transcript-data", in: markdown),
            let data = Data(base64Encoded: encoded),
            let transcript = try? JSONDecoder().decode(TranscriptResult.self, from: data) {
-            return transcript
+            // The visible text is editable; embedded JSON supplies timing and OCR metadata.
+            guard let text = sectionBody(named: "Text", in: markdown)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) else {
+                throw SummaryError.persistenceFailed("Transcript markdown is missing the text section.")
+            }
+            guard text != transcript.text.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                return transcript
+            }
+            return TranscriptResult(
+                text: text, localeIdentifier: transcript.localeIdentifier,
+                sourceURL: transcript.sourceURL, segments: [],
+                screenSegments: transcript.screenSegments, screenOCRReport: transcript.screenOCRReport
+            )
         }
 
         guard let text = sectionBody(named: "Text", in: markdown)?
@@ -351,7 +376,9 @@ enum TranscriptMarkdownCodec {
         guard let start = lines.firstIndex(of: "## \(name)") else {
             return nil
         }
-        let body = lines.dropFirst(start + 1).prefix { !$0.hasPrefix("## ") && !$0.hasPrefix("<!-- ") }
+        let body = lines.dropFirst(start + 1).prefix {
+            $0 != "## Segments" && $0 != "## Screen OCR (auxiliary)" && !$0.hasPrefix("<!-- transcript-data: ")
+        }
         return body.joined(separator: "\n")
     }
 }
