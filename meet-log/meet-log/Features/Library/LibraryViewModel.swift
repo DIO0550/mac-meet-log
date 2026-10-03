@@ -73,6 +73,8 @@ final class LibraryViewModel: ObservableObject {
     }
     @Published private(set) var searchProgress: LibrarySearchProgress?
 
+    private static let missingSummaryInputMessage = "要約に必要な保存済みテキストがありません。"
+
     private let store: RecordingLibraryStoring
     private let trackAwareTranscriptionService: TrackAwareTranscriptionService
     private let screenEnricher: ScreenTranscriptEnricher
@@ -258,7 +260,7 @@ final class LibraryViewModel: ObservableObject {
             return item.existingScreenCaptureURL == nil ? "画面OCRに必要な動画ファイルがありません。" : nil
         case .summary:
             guard let transcript, !transcript.summaryInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                return "要約に必要な保存済みテキストがありません。"
+                return Self.missingSummaryInputMessage
             }
             return nil
         }
@@ -326,7 +328,7 @@ final class LibraryViewModel: ObservableObject {
                     try validateRun(runID, item: item)
                 }
                 if stage == .summary, input.summaryInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    summaryState = .failed("要約に必要な保存済みテキストがありません。")
+                    summaryState = .failed(Self.missingSummaryInputMessage)
                     return
                 }
                 transcript = input
@@ -336,7 +338,7 @@ final class LibraryViewModel: ObservableObject {
                     return
                 }
                 guard !input.summaryInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    summaryState = .failed("要約に必要な保存済みテキストがありません。")
+                    summaryState = .failed(Self.missingSummaryInputMessage)
                     return
                 }
                 summaryState = .summarizing
