@@ -13,7 +13,6 @@ struct RecorderControls: View {
             commandButtons
             if viewModel.canStart {
                 Button("Test Inputs (5 seconds)", action: viewModel.startTest)
-                    .disabled(!viewModel.sources.systemAudioEnabled && !viewModel.sources.microphoneEnabled)
                 Text("Speak and play system audio, then listen to each test track before the meeting.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
