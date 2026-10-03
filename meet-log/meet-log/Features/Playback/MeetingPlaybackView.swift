@@ -28,7 +28,7 @@ struct MeetingPlaybackView: View {
                 ), in: 0...max(controller.duration, 0.001))
                 .accessibilityLabel("再生位置")
                 Picker("速度", selection: Binding(get: { controller.speed }, set: controller.setSpeed)) {
-                    ForEach([Float(0.5), 0.75, 1, 1.25, 1.5, 2], id: \.self) { speed in
+                    ForEach(MeetingPlaybackController.supportedSpeeds, id: \.self) { speed in
                         Text("\(speed.formatted())×").tag(speed)
                     }
                 }

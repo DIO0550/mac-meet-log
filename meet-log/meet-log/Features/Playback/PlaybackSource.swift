@@ -42,6 +42,9 @@ nonisolated enum PlaybackTimeline {
             return "--:--"
         }
         let whole = Int(seconds)
+        if whole < 3600 {
+            return String(format: "%02d:%02d", whole / 60, whole % 60)
+        }
         return String(format: "%d:%02d:%02d", whole / 3600, whole / 60 % 60, whole % 60)
     }
 }

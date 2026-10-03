@@ -4,6 +4,8 @@ import Foundation
 
 @MainActor
 final class MeetingPlaybackController: ObservableObject {
+    static let supportedSpeeds: [Float] = [0.5, 0.75, 1, 1.25, 1.5, 2]
+
     @Published private(set) var position = 0.0
     @Published private(set) var duration = 0.0
     @Published private(set) var isPlaying = false
@@ -87,7 +89,7 @@ final class MeetingPlaybackController: ObservableObject {
     }
 
     func setSpeed(_ value: Float) {
-        guard [Float(0.5), 0.75, 1, 1.25, 1.5, 2].contains(value) else {
+        guard Self.supportedSpeeds.contains(value) else {
             return
         }
         speed = value
