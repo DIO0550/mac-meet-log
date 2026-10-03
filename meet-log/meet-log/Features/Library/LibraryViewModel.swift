@@ -72,7 +72,6 @@ final class LibraryViewModel: ObservableObject {
     private let searchService: LibrarySearchService
     private var searchTask: Task<Void, Never>?
 
-
     convenience init() {
         self.init(
             store: SettingsRecordingLibraryStore(),
@@ -195,11 +194,14 @@ final class LibraryViewModel: ObservableObject {
         Task {
             do {
                 let savedTranscript = try? await summaryStore.transcript(for: item)
-                let summary = try await summaryStore.summary(for: item)
                 guard self.selectedItem?.mixdownURL == item.mixdownURL else {
                     return
                 }
                 transcript = savedTranscript
+                let summary = try await summaryStore.summary(for: item)
+                guard self.selectedItem?.mixdownURL == item.mixdownURL else {
+                    return
+                }
                 if let summary {
                     summaryState = .summarized(summary)
                 } else {
