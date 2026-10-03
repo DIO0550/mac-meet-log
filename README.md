@@ -144,3 +144,51 @@ pause/resume cycles, then check utterance/note/OCR jumps, slider seeking and
 0.5×/1×/2× playback against those markers. Record the Mac/macOS version and observed
 sync offset at the start, after each resume and at the end. Synthetic tests do not
 establish capture synchronization on a real Mac.
+
+### Recording input test and health warnings
+
+Before a meeting, choose the audio sources and microphone, then select **Test
+Inputs (5 seconds)**. Speak and play system audio; the test stops automatically
+and offers separate System audio / Microphone playback. Use headphones to avoid
+feedback. Test recordings contain audio only, live in a unique temporary folder,
+do not enter the Library or notes workflow, and are removed at the next test or
+recording (or normal recorder teardown). A crash may leave temporary files for
+macOS to clean up. Test playback confirms only the selected inputs at that time.
+
+During recording, each enabled audio source is monitored independently:
+
+- **Silence:** RMS below 0.001 (-60 dBFS) for 30 seconds while buffers continue.
+- **Audio interruption:** no nonempty, metered audio buffer for 5 seconds,
+  including when the source has never supplied a buffer. This takes precedence
+  over silence. A resumed stream starts a fresh silence window.
+- **Microphone disconnection/default-device change:** reported through the device
+  inventory stream; select a working input and verify the levels.
+- Audio monitoring is suspended during pause, restarts with a fresh grace period
+  on resume/input switch, and ignores disabled sources. Silence and interruptions
+  never stop recording automatically.
+
+Warnings appear in the recorder panel and sound the macOS alert. They stay until
+dismissed (they are warning history, not live status indicators). The same warning
+for the same source is sounded at most once every 60 seconds, including after
+dismissal, recovery, or pause/resume. No Notification Center permission is needed;
+there are no background notification banners if the panel is hidden.
+
+Free space is checked on the selected destination before capture, then every
+10 seconds while recording **or paused**. The checked destination stays pinned
+throughout the session, even if Settings changes. Audio-only recording warns at
+512 MiB; screen recording warns at 2 GiB. At **256 MiB or less**, startup is blocked
+or an active recording stops, closes its source tracks/video, and skips mixdown
+to reserve space. Existing source playback and notes saving remain available.
+An unreadable capacity blocks startup; during recording it warns without stopping.
+Checks use currently free filesystem bytes, conservatively excluding purgeable
+space. Another process can consume space between checks, so the reserve cannot
+guarantee successful finalization under every disk-full/unplugged-volume condition.
+
+`RecordingHealthTests` controls time, storage capacity and recorder events;
+recorder orchestration tests verify emergency finalization without mixdown.
+**Physical-device validation is pending**: this change was prepared on Linux,
+without a Mac or USB/Bluetooth audio devices. Before closing #45, record the
+Mac/macOS/device versions and results for USB/Bluetooth input tests, live unplug
+and re-selection, 30-second silence, 5-second buffer loss, pause/resume, warning
+cooldown, and audio/screen recordings on a test volume reaching both capacity
+thresholds. Verify the saved tracks/video and notes can still be reopened.

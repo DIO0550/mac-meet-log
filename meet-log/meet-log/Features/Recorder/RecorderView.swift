@@ -43,8 +43,26 @@ struct RecorderView: View {
                     )
                 }
 
-                if viewModel.isRecording || viewModel.isPaused || viewModel.hasUnsavedNotes {
+                if !viewModel.healthWarnings.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(viewModel.healthWarnings, id: \.self) { warning in
+                            Label(warning.message, systemImage: "exclamationmark.triangle.fill")
+                                .font(.callout)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Button("Dismiss warnings", action: viewModel.dismissHealthWarnings)
+                    }
+                    .padding(12)
+                    .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                    .accessibilityLabel("Recording warnings")
+                }
+
+                if !viewModel.isTestRecording && (viewModel.isRecording || viewModel.isPaused || viewModel.hasUnsavedNotes) {
                     LiveRecordingNotesView(viewModel: viewModel)
+                }
+
+                if let test = viewModel.testCompletion {
+                    InputTestPlaybackView(completion: test)
                 }
 
                 if let completion = viewModel.completion {

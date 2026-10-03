@@ -3,6 +3,26 @@ import Testing
 @testable import DualTrackRecorder
 
 struct DualTrackRecorderOrchestrationTests {
+    @Test func emergencyStopClosesTracksAndScreenWithoutCreatingMixdown() async throws {
+        let baseURL = temporaryOutputURL()
+        defer { try? FileManager.default.removeItem(at: baseURL) }
+        let harness = FakeRecorderHarness(baseURL: baseURL)
+        let recorder = DualTrackRecorder(configuration: configuration(), dependencies: harness.dependencies)
+        try await recorder.start(
+            sources: RecordingSources(systemAudioEnabled: true, microphoneEnabled: true, screenCaptureEnabled: true),
+            screenCaptureTarget: .previewDisplay
+        )
+        let result = try await recorder.stop(createMixdown: false)
+        #expect(harness.writers[.systemAudio]?.closeCount == 1)
+        #expect(harness.writers[.microphone]?.closeCount == 1)
+        #expect(harness.screenCapture.stopCount == 1)
+        #expect(harness.mixdownExporter.requestedDestinationURL == nil)
+        #expect(result.systemAudioURL != nil)
+        #expect(result.microphoneURL != nil)
+        #expect(result.screenCaptureURL != nil)
+        #expect(result.mixdown.error != nil)
+    }
+
     @Test func recordingUsesTheDirectorySelectedAtStart() async throws {
         let baseURL = temporaryOutputURL()
         defer { try? FileManager.default.removeItem(at: baseURL) }

@@ -3,6 +3,15 @@ import Testing
 @testable import DualTrackRecorder
 
 struct AudioLevelMeterTests {
+    @Test func emptyBufferDoesNotImplyAudioIsBeingSupplied() throws {
+        let buffer = try makeBuffer(samples: [0], channelCount: 1)
+        buffer.frameLength = 0
+        var meter = AudioLevelMeter()
+        #expect(meter.events(for: buffer, track: .microphone).isEmpty)
+        buffer.frameLength = 1
+        #expect(meter.events(for: buffer, track: .microphone).count == 2)
+    }
+
     @Test func silentBufferProducesZeroMetrics() throws {
         let buffer = try makeBuffer(samples: [0, 0, 0, 0], channelCount: 1)
 

@@ -126,7 +126,7 @@ public actor DualTrackRecorder {
         publish(state)
     }
 
-    public func stop() async throws -> RecordingResult {
+    public func stop(createMixdown: Bool = true) async throws -> RecordingResult {
         let finalizing = try await session.startFinalizing()
         publish(finalizing)
 
@@ -145,6 +145,9 @@ public actor DualTrackRecorder {
             let mixdown: RecordingMixdownOutcome
 
             do {
+                guard createMixdown else {
+                    throw RecorderError.mixdownFailed("Mixdown skipped to preserve free space. Source tracks are saved.")
+                }
                 let mixdownURL = try await dependencies.mixdownExporter.export(
                     systemAudioURL: trackURLs.systemAudioURL,
                     microphoneURL: trackURLs.microphoneURL,
