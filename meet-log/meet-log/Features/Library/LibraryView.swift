@@ -469,15 +469,29 @@ private struct LibraryDetailPane: View {
             }
             .frame(maxWidth: 190)
 
-            Button {
-                viewModel.generateSummaryForSelectedItem(
-                    template: settings.summaryTemplate(id: viewModel.selectedSummaryTemplateID)
-                )
+            Menu {
+                ForEach(LibraryProcessingStage.allCases) { stage in
+                    Button {
+                        viewModel.runProcessing(
+                            stage, template: settings.summaryTemplate(id: viewModel.selectedSummaryTemplateID)
+                        )
+                    } label: {
+                        if let reason = viewModel.unavailableReason(for: stage) {
+                            Text("\(stage.title) — \(reason)")
+                        } else {
+                            Text(stage.title)
+                        }
+                    }
+                    .disabled(viewModel.unavailableReason(for: stage) != nil)
+                }
             } label: {
-                Label("Summarize", systemImage: "text.badge.checkmark")
+                Label("処理を実行", systemImage: "arrow.clockwise")
             }
-            .buttonStyle(.bordered)
-            .disabled(viewModel.isSummaryBusy || !item.hasTranscribableAudio)
+            .disabled(viewModel.isSummaryBusy)
+
+            if viewModel.isSummaryBusy, viewModel.summaryState != .loadingSaved {
+                Button("キャンセル", action: viewModel.cancelProcessing)
+            }
 
             Button {
                 exportDocument = viewModel.exportDocumentForSelectedItem()
@@ -530,10 +544,19 @@ private struct LibraryDetailPane: View {
                 }
             }
 
+            if let summary = viewModel.savedSummary {
+                if let warning = viewModel.summaryInputWarning {
+                    SummaryMessageRow(systemImage: "exclamationmark.triangle", message: warning)
+                }
+                MeetingSummaryView(summary: summary)
+            }
+
             switch viewModel.summaryState {
             case .idle:
-                let idleMessage = summaryIdleMessage(for: item)
-                SummaryMessageRow(systemImage: idleMessage.systemImage, message: idleMessage.message)
+                if viewModel.savedSummary == nil {
+                    let idleMessage = summaryIdleMessage(for: item)
+                    SummaryMessageRow(systemImage: idleMessage.systemImage, message: idleMessage.message)
+                }
             case .loadingSaved:
                 SummaryMessageRow(systemImage: "clock", message: "Loading saved summary...")
             case .transcribing:
@@ -544,8 +567,10 @@ private struct LibraryDetailPane: View {
                 SummaryMessageRow(systemImage: "text.magnifyingglass", message: "Generating summary...")
             case let .summaryProgress(progress):
                 SummaryMessageRow(systemImage: "text.magnifyingglass", message: progress.message)
-            case let .summarized(summary):
-                MeetingSummaryView(summary: summary)
+            case .summarized:
+                EmptyView()
+            case .cancelled:
+                SummaryMessageRow(systemImage: "stop.circle", message: "キャンセルしました。保存済みの結果は保持されています。")
             case let .unavailable(message):
                 SummaryMessageRow(systemImage: "exclamationmark.circle", message: message)
             case let .failed(message):

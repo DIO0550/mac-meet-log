@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 nonisolated enum TranscriptSpeaker: String, Codable, Equatable, Sendable {
@@ -50,6 +51,19 @@ nonisolated struct TranscriptResult: Codable, Equatable, Sendable {
         segments = try values.decodeIfPresent([TranscriptSegment].self, forKey: .segments) ?? []
         screenSegments = try values.decodeIfPresent([ScreenTranscriptSegment].self, forKey: .screenSegments) ?? []
         screenOCRReport = try values.decodeIfPresent(ScreenOCRReport.self, forKey: .screenOCRReport)
+    }
+
+    var summaryInputFingerprint: String {
+        SHA256.hash(data: Data(summaryInputText.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+    }
+
+    nonisolated func retainingScreen(from previous: TranscriptResult?) -> TranscriptResult {
+        TranscriptResult(
+            text: text, localeIdentifier: localeIdentifier, sourceURL: sourceURL,
+            segments: segments, screenSegments: previous?.screenSegments ?? [],
+            screenOCRReport: previous?.screenOCRReport
+        )
     }
 
     var screenText: String {

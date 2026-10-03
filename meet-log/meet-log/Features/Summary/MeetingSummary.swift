@@ -8,6 +8,7 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
     let createdAt: Date
     let templateID: String?
     let templateName: String?
+    let inputFingerprint: String?
 
     nonisolated init(
         summary: String,
@@ -16,7 +17,8 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
         transcriptSourceURL: URL?,
         createdAt: Date = .now,
         templateID: String? = nil,
-        templateName: String? = nil
+        templateName: String? = nil,
+        inputFingerprint: String? = nil
     ) {
         self.summary = summary
         self.topics = topics
@@ -25,6 +27,16 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
         self.createdAt = createdAt
         self.templateID = templateID
         self.templateName = templateName
+        self.inputFingerprint = inputFingerprint
+    }
+
+    nonisolated func recording(input: TranscriptResult) -> MeetingSummary {
+        MeetingSummary(
+            summary: summary, topics: topics, actionItems: actionItems,
+            transcriptSourceURL: transcriptSourceURL, createdAt: createdAt,
+            templateID: templateID, templateName: templateName,
+            inputFingerprint: input.summaryInputFingerprint
+        )
     }
 
     nonisolated func recording(template: SummaryTemplate) -> MeetingSummary {
@@ -35,7 +47,8 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
             transcriptSourceURL: transcriptSourceURL,
             createdAt: createdAt,
             templateID: template.id,
-            templateName: template.name
+            templateName: template.name,
+            inputFingerprint: inputFingerprint
         )
     }
 }
