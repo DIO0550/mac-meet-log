@@ -47,7 +47,15 @@ final class LibraryViewModel: ObservableObject {
             loadSummaryForSelectedItem()
         }
     }
-    let playback = MeetingPlaybackController()
+    private var playbackStorage: MeetingPlaybackController?
+    var playback: MeetingPlaybackController {
+        if let playbackStorage {
+            return playbackStorage
+        }
+        let controller = MeetingPlaybackController()
+        playbackStorage = controller
+        return controller
+    }
     @Published private(set) var summaryState: SummaryState = .idle
     @Published private(set) var screenOCRWarning: String?
     @Published private(set) var transcript: TranscriptResult?
@@ -71,6 +79,7 @@ final class LibraryViewModel: ObservableObject {
     private let mixdownService: RecordingLibraryMixdownServicing
     private let searchService: LibrarySearchService
     private var searchTask: Task<Void, Never>?
+    private var summaryLoadID = UUID()
 
     convenience init() {
         self.init(
@@ -181,6 +190,8 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func loadSummaryForSelectedItem() {
+        let request = UUID()
+        summaryLoadID = request
         transcript = nil
         screenOCRWarning = nil
         guard let selectedItem else {
@@ -194,12 +205,12 @@ final class LibraryViewModel: ObservableObject {
         Task {
             do {
                 let savedTranscript = try? await summaryStore.transcript(for: item)
-                guard self.selectedItem?.mixdownURL == item.mixdownURL else {
+                guard self.summaryLoadID == request, self.selectedItem?.mixdownURL == item.mixdownURL else {
                     return
                 }
                 transcript = savedTranscript
                 let summary = try await summaryStore.summary(for: item)
-                guard self.selectedItem?.mixdownURL == item.mixdownURL else {
+                guard self.summaryLoadID == request, self.selectedItem?.mixdownURL == item.mixdownURL else {
                     return
                 }
                 if let summary {
@@ -208,7 +219,7 @@ final class LibraryViewModel: ObservableObject {
                     summaryState = .idle
                 }
             } catch {
-                guard self.selectedItem?.mixdownURL == item.mixdownURL else {
+                guard self.summaryLoadID == request, self.selectedItem?.mixdownURL == item.mixdownURL else {
                     return
                 }
                 summaryState = .failed(error.localizedDescription)
@@ -217,6 +228,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func generateSummaryForSelectedItem(template: SummaryTemplate? = nil) {
+        summaryLoadID = UUID()
         guard let selectedItem, selectedItem.hasTranscribableAudio else {
             summaryState = .idle
             return
@@ -269,7 +281,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func stopPlayback() {
-        playback.stop()
+        playbackStorage?.stop()
     }
 
     func revealSelectedItemInFinder() {

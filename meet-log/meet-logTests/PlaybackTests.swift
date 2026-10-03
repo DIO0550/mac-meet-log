@@ -4,6 +4,7 @@ import Testing
 @testable import meet_log
 
 @MainActor
+@Suite(.serialized)
 struct PlaybackTests {
     @Test func clampsNegativeAndPastEndButRejectsInvalidTimes() {
         #expect(PlaybackTimeline.position(-5, duration: 30) == 0)
@@ -134,8 +135,7 @@ struct PlaybackTests {
         let sourceTrack = try #require(try await AVURLAsset(url: video).loadTracks(withMediaType: .video).first)
         let resultTrack = try #require(try await loaded.composition.loadTracks(withMediaType: .video).first)
         let sourceRange = try await sourceTrack.load(.timeRange)
-        let compositionTrack = try #require(resultTrack as? AVCompositionTrack)
-        let segment = try #require(compositionTrack.segments.first(where: { !$0.isEmpty }))
+        let segment = try #require(resultTrack.segments.first(where: { !$0.isEmpty }))
         #expect(segment.timeMapping.source == sourceRange)
         #expect(segment.timeMapping.target == sourceRange)
         let videoOnly = try await PlaybackMediaLoader().load(PlaybackSource(audioURLs: [], videoURL: video))
