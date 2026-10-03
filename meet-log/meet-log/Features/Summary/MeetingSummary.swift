@@ -9,6 +9,7 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
     let templateID: String?
     let templateName: String?
     let inputFingerprint: String?
+    let editedAt: Date?
 
     nonisolated init(
         summary: String,
@@ -18,7 +19,8 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
         createdAt: Date = .now,
         templateID: String? = nil,
         templateName: String? = nil,
-        inputFingerprint: String? = nil
+        inputFingerprint: String? = nil,
+        editedAt: Date? = nil
     ) {
         self.summary = summary
         self.topics = topics
@@ -28,6 +30,7 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
         self.templateID = templateID
         self.templateName = templateName
         self.inputFingerprint = inputFingerprint
+        self.editedAt = editedAt
     }
 
     nonisolated func recording(input: TranscriptResult) -> MeetingSummary {
@@ -35,7 +38,7 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
             summary: summary, topics: topics, actionItems: actionItems,
             transcriptSourceURL: transcriptSourceURL, createdAt: createdAt,
             templateID: templateID, templateName: templateName,
-            inputFingerprint: input.summaryInputFingerprint
+            inputFingerprint: input.summaryInputFingerprint, editedAt: editedAt
         )
     }
 
@@ -48,15 +51,15 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
             createdAt: createdAt,
             templateID: template.id,
             templateName: template.name,
-            inputFingerprint: inputFingerprint
+            inputFingerprint: inputFingerprint, editedAt: editedAt
         )
     }
 }
 
 nonisolated struct MeetingTopic: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
-    let title: String
-    let detail: String?
+    var title: String
+    var detail: String?
 
     nonisolated init(id: UUID = UUID(), title: String, detail: String? = nil) {
         self.id = id
@@ -67,9 +70,9 @@ nonisolated struct MeetingTopic: Codable, Equatable, Identifiable, Sendable {
 
 nonisolated struct MeetingActionItem: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
-    let title: String
-    let owner: String?
-    let dueDateText: String?
+    var title: String
+    var owner: String?
+    var dueDateText: String?
 
     nonisolated init(
         id: UUID = UUID(),

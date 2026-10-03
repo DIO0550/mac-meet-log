@@ -53,6 +53,27 @@ struct LibraryView: View {
         .onDisappear {
             viewModel.stopPlayback()
         }
+        .sheet(isPresented: Binding(
+            get: { viewModel.editDraft != nil },
+            set: { _ in } // Dismiss only through Save or the explicit discard confirmation.
+        )) {
+            if let initial = viewModel.editDraft {
+                MeetingEditorView(
+                    draft: Binding(get: { viewModel.editDraft ?? initial }, set: { viewModel.editDraft = $0 }),
+                    isSaving: viewModel.isSavingEdits, error: viewModel.editError,
+                    save: { Task { await viewModel.saveEdits() } }, cancel: viewModel.discardEdits
+                )
+            }
+        }
+        .alert("手動修正を上書きしますか？", isPresented: Binding(
+            get: { viewModel.processingConfirmation != nil },
+            set: { if !$0 { viewModel.cancelProcessingConfirmation() } }
+        )) {
+            Button("再生成して上書き", role: .destructive, action: viewModel.confirmProcessingOverwrite)
+            Button("キャンセル", role: .cancel, action: viewModel.cancelProcessingConfirmation)
+        } message: {
+            Text(viewModel.processingConfirmation?.message ?? "")
+        }
     }
 
     private var header: some View {
@@ -515,8 +536,18 @@ private struct LibraryDetailPane: View {
     private var transcriptSection: some View {
         if let transcript = viewModel.transcript {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Transcript")
-                    .font(.headline)
+                HStack {
+                    Text("Transcript").font(.headline)
+                    Text(transcript.audioEditedAt == nil ? "音声: 自動生成" : "音声: 手動修正済み")
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !transcript.screenSegments.isEmpty {
+                        Text(transcript.screenEditedAt == nil ? "画面: 自動生成" : "画面: 手動修正済み")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("編集", action: viewModel.beginTranscriptEditing)
+                        .disabled(viewModel.isSummaryBusy)
+                }
 
                 PlaybackTranscriptView(transcript: transcript, seek: viewModel.playback.jump)
             }
@@ -545,6 +576,13 @@ private struct LibraryDetailPane: View {
             }
 
             if let summary = viewModel.savedSummary {
+                HStack {
+                    Text(summary.editedAt == nil ? "自動生成" : "手動修正済み")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("編集", action: viewModel.beginSummaryEditing)
+                        .disabled(viewModel.isSummaryBusy)
+                }
                 if let warning = viewModel.summaryInputWarning {
                     SummaryMessageRow(systemImage: "exclamationmark.triangle", message: warning)
                 }

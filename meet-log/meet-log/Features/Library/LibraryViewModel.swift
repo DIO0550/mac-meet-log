@@ -37,13 +37,28 @@ final class LibraryViewModel: ObservableObject {
         case failed(RecordingLibraryItem.ID, String)
     }
 
+    struct ProcessingConfirmation: Identifiable {
+        let id = UUID()
+        let stage: LibraryProcessingStage
+        let template: SummaryTemplate?
+        let message: String
+    }
+
+    @Published var editDraft: MeetingEditDraft?
+    @Published private(set) var isSavingEdits = false
+    @Published private(set) var editError: String?
+    @Published private(set) var processingConfirmation: ProcessingConfirmation?
+    private var editingItem: RecordingLibraryItem?
+
     @Published private(set) var state: State = .loading
-    @Published var selectedID: RecordingLibraryItem.ID? {
-        didSet {
-            guard selectedID != oldValue else {
+    @Published private var selectedRecordingID: RecordingLibraryItem.ID?
+    var selectedID: RecordingLibraryItem.ID? {
+        get { selectedRecordingID }
+        set {
+            guard editDraft == nil, selectedRecordingID != newValue else {
                 return
             }
-
+            selectedRecordingID = newValue
             stopPlayback()
             loadSummaryForSelectedItem()
         }
@@ -196,6 +211,8 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func loadSummaryForSelectedItem() {
+        guard editDraft == nil else { return }
+        processingConfirmation = nil
         cancelProcessing()
         let request = UUID()
         summaryLoadID = request
@@ -280,8 +297,96 @@ final class LibraryViewModel: ObservableObject {
         summaryState = .cancelled
     }
 
-    func runProcessing(_ stage: LibraryProcessingStage, template: SummaryTemplate? = nil) {
-        guard !isSummaryBusy, let item = selectedItem else {
+    func beginTranscriptEditing() {
+        guard !isSummaryBusy, editDraft == nil, let transcript, let item = selectedItem else { return }
+        editingItem = item
+        editError = nil
+        editDraft = MeetingEditDraft(transcript: transcript)
+    }
+
+    func beginSummaryEditing() {
+        guard !isSummaryBusy, editDraft == nil, let savedSummary, let item = selectedItem else { return }
+        editingItem = item
+        editError = nil
+        editDraft = MeetingEditDraft(summary: savedSummary)
+    }
+
+    func discardEdits() {
+        guard !isSavingEdits else { return }
+        editDraft = nil
+        editingItem = nil
+        editError = nil
+    }
+
+    func saveEdits() async {
+        guard !isSavingEdits, let draft = editDraft, let item = editingItem,
+              selectedItem?.mixdownURL == item.mixdownURL else { return }
+        guard draft.hasChanges else {
+            discardEdits()
+            return
+        }
+        isSavingEdits = true
+        editError = nil
+        defer { isSavingEdits = false }
+        do {
+            switch draft.original {
+            case .transcript(let original):
+                guard try await summaryStore.transcript(for: item) == original else {
+                    throw SummaryError.persistenceFailed("保存済みの文字起こしが変更されています。編集を取り消して読み直してください。")
+                }
+                guard let edited = draft.editedTranscript() else {
+                    throw SummaryError.persistenceFailed("セグメントの構成が変更されています。")
+                }
+                try await summaryStore.save(edited, for: item)
+                transcript = edited
+            case .summary(let original):
+                // Legacy Markdown has no topic/TODO IDs; decoding assigns fresh UUIDs.
+                guard let stored = try await summaryStore.summary(for: item),
+                      stored == original || (stored.editedAt == nil && original.editedAt == nil &&
+                        MeetingSummaryMarkdownCodec.encode(stored, recordingID: item.id)
+                        == MeetingSummaryMarkdownCodec.encode(original, recordingID: item.id)) else {
+                    throw SummaryError.persistenceFailed("保存済みの要約が変更されています。編集を取り消して読み直してください。")
+                }
+                guard let edited = draft.editedSummary() else { return }
+                try await summaryStore.save(edited, for: item)
+                savedSummary = edited
+                summaryState = .summarized(edited)
+            }
+            editDraft = nil
+            editingItem = nil
+            scheduleSearch()
+        } catch {
+            editError = error.localizedDescription
+        }
+    }
+
+    func cancelProcessingConfirmation() {
+        processingConfirmation = nil
+    }
+
+    func confirmProcessingOverwrite() {
+        guard let confirmation = processingConfirmation else { return }
+        processingConfirmation = nil
+        runProcessing(confirmation.stage, template: confirmation.template, overwriteConfirmed: true)
+    }
+
+    private func overwriteWarning(for stage: LibraryProcessingStage, transcript: TranscriptResult?) -> String? {
+        var names: [String] = []
+        if (stage == .all || stage == .transcription), transcript?.audioEditedAt != nil {
+            names.append("音声の文字起こし")
+        }
+        if (stage == .all || stage == .screenOCR), transcript?.screenEditedAt != nil {
+            names.append("画面OCR")
+        }
+        if (stage == .all || stage == .summary), savedSummary?.editedAt != nil {
+            names.append("要約・トピック・TODO")
+        }
+        guard !names.isEmpty else { return nil }
+        return "\(names.joined(separator: "、"))の手動修正が再生成結果で上書きされます。続けますか？"
+    }
+
+    func runProcessing(_ stage: LibraryProcessingStage, template: SummaryTemplate? = nil, overwriteConfirmed: Bool = false) {
+        guard !isSummaryBusy, editDraft == nil, let item = selectedItem else {
             return
         }
         // Saved text is reloaded below so external/manual edits are respected.
@@ -307,6 +412,11 @@ final class LibraryViewModel: ObservableObject {
             do {
                 let saved = try await summaryStore.transcript(for: item)
                 try validateRun(runID, item: item)
+                if !overwriteConfirmed, let warning = overwriteWarning(for: stage, transcript: saved) {
+                    processingConfirmation = ProcessingConfirmation(stage: stage, template: template, message: warning)
+                    summaryState = savedSummary.map(SummaryState.summarized) ?? .idle
+                    return
+                }
                 var input = saved ?? TranscriptResult(
                     text: "", localeIdentifier: locale.identifier, sourceURL: item.mixdownURL
                 )
@@ -445,12 +555,14 @@ final class LibraryViewModel: ObservableObject {
     }
 
     private func refresh(shouldShowLoading: Bool) async {
+        guard editDraft == nil else { return }
         if shouldShowLoading {
             state = .loading
         }
 
         do {
             let loadedItems = try await store.recordings()
+            guard editDraft == nil else { return }
             reconcileSelection(with: loadedItems)
             state = loadedItems.isEmpty ? .empty : .loaded(loadedItems)
             loadSummaryForSelectedItem()

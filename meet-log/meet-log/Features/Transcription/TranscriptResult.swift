@@ -22,6 +22,8 @@ nonisolated struct TranscriptResult: Codable, Equatable, Sendable {
     let segments: [TranscriptSegment]
     let screenSegments: [ScreenTranscriptSegment]
     let screenOCRReport: ScreenOCRReport?
+    let audioEditedAt: Date?
+    let screenEditedAt: Date?
 
     nonisolated init(
         text: String,
@@ -29,7 +31,9 @@ nonisolated struct TranscriptResult: Codable, Equatable, Sendable {
         sourceURL: URL,
         segments: [TranscriptSegment] = [],
         screenSegments: [ScreenTranscriptSegment] = [],
-        screenOCRReport: ScreenOCRReport? = nil
+        screenOCRReport: ScreenOCRReport? = nil,
+        audioEditedAt: Date? = nil,
+        screenEditedAt: Date? = nil
     ) {
         self.text = text
         self.localeIdentifier = localeIdentifier
@@ -37,10 +41,13 @@ nonisolated struct TranscriptResult: Codable, Equatable, Sendable {
         self.segments = segments
         self.screenSegments = screenSegments
         self.screenOCRReport = screenOCRReport
+        self.audioEditedAt = audioEditedAt
+        self.screenEditedAt = screenEditedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case text, localeIdentifier, sourceURL, segments, screenSegments, screenOCRReport
+        case audioEditedAt, screenEditedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -51,6 +58,8 @@ nonisolated struct TranscriptResult: Codable, Equatable, Sendable {
         segments = try values.decodeIfPresent([TranscriptSegment].self, forKey: .segments) ?? []
         screenSegments = try values.decodeIfPresent([ScreenTranscriptSegment].self, forKey: .screenSegments) ?? []
         screenOCRReport = try values.decodeIfPresent(ScreenOCRReport.self, forKey: .screenOCRReport)
+        audioEditedAt = try values.decodeIfPresent(Date.self, forKey: .audioEditedAt)
+        screenEditedAt = try values.decodeIfPresent(Date.self, forKey: .screenEditedAt)
     }
 
     var summaryInputFingerprint: String {
@@ -62,7 +71,8 @@ nonisolated struct TranscriptResult: Codable, Equatable, Sendable {
         TranscriptResult(
             text: text, localeIdentifier: localeIdentifier, sourceURL: sourceURL,
             segments: segments, screenSegments: previous?.screenSegments ?? [],
-            screenOCRReport: previous?.screenOCRReport
+            screenOCRReport: previous?.screenOCRReport,
+            audioEditedAt: audioEditedAt, screenEditedAt: previous?.screenEditedAt
         )
     }
 

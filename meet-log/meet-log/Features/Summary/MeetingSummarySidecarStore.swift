@@ -32,6 +32,11 @@ struct MeetingSummarySidecarStore: MeetingSummaryStoring {
         do {
             let url = summaryURL(for: item)
             let markdown = MeetingSummaryMarkdownCodec.encode(summary, recordingID: item.id)
+            if summary.editedAt != nil {
+                guard try MeetingSummaryMarkdownCodec.decode(markdown) == summary else {
+                    throw SummaryError.persistenceFailed("編集内容を保存形式に変換できません。")
+                }
+            }
             try Task.checkCancellation()
             try markdown.write(to: url, atomically: true, encoding: .utf8)
         } catch is CancellationError {
@@ -59,6 +64,11 @@ struct MeetingSummarySidecarStore: MeetingSummaryStoring {
         do {
             let url = transcriptURL(for: item)
             let markdown = TranscriptMarkdownCodec.encode(transcript, recordingID: item.id)
+            if transcript.audioEditedAt != nil || transcript.screenEditedAt != nil {
+                guard try TranscriptMarkdownCodec.decode(markdown) == transcript else {
+                    throw SummaryError.persistenceFailed("編集内容を保存形式に変換できません。")
+                }
+            }
             try Task.checkCancellation()
             try markdown.write(to: url, atomically: true, encoding: .utf8)
         } catch is CancellationError {
@@ -116,10 +126,19 @@ enum MeetingSummaryMarkdownCodec {
             )
         }
 
+        // Edited fields may contain Markdown headings, colons, parentheses or newlines.
+        // Keep their exact values and stable IDs in a versioned, authoritative payload.
+        if summary.editedAt != nil, let data = try? JSONEncoder().encode(summary) {
+            sections.insert("<!-- summary-edit-format: 1 -->", at: 1)
+            sections.append("<!-- summary-data: \(data.base64EncodedString()) -->")
+        }
         return sections.joined(separator: "\n\n") + "\n"
     }
 
     nonisolated static func decode(_ markdown: String) throws -> MeetingSummary {
+        if markdown.hasPrefix("# Meeting Summary\n\n<!-- summary-edit-format: 1 -->\n") {
+            return try EditedSidecarPayload.decode(MeetingSummary.self, named: "summary-data", from: markdown)
+        }
         let sections = sectionBodies(from: markdown)
         guard let summaryText = sections["Summary"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !summaryText.isEmpty else {
@@ -312,11 +331,17 @@ enum TranscriptMarkdownCodec {
         if let data = try? JSONEncoder().encode(transcript) {
             sections.append("<!-- transcript-data: \(data.base64EncodedString()) -->")
         }
+        if transcript.audioEditedAt != nil || transcript.screenEditedAt != nil {
+            sections.insert("<!-- transcript-edit-format: 1 -->", at: 1)
+        }
 
         return sections.joined(separator: "\n\n") + "\n"
     }
 
     nonisolated static func decode(_ markdown: String) throws -> TranscriptResult {
+        if markdown.hasPrefix("# Transcript\n\n<!-- transcript-edit-format: 1 -->\n") {
+            return try EditedSidecarPayload.decode(TranscriptResult.self, named: "transcript-data", from: markdown)
+        }
         if let encoded = metadataValue(named: "transcript-data", in: markdown),
            let data = Data(base64Encoded: encoded),
            let transcript = try? JSONDecoder().decode(TranscriptResult.self, from: data) {
@@ -331,7 +356,8 @@ enum TranscriptMarkdownCodec {
             return TranscriptResult(
                 text: text, localeIdentifier: transcript.localeIdentifier,
                 sourceURL: transcript.sourceURL, segments: [],
-                screenSegments: transcript.screenSegments, screenOCRReport: transcript.screenOCRReport
+                screenSegments: transcript.screenSegments, screenOCRReport: transcript.screenOCRReport,
+                audioEditedAt: transcript.audioEditedAt, screenEditedAt: transcript.screenEditedAt
             )
         }
 
@@ -380,5 +406,18 @@ enum TranscriptMarkdownCodec {
             $0 != "## Segments" && $0 != "## Screen OCR (auxiliary)" && !$0.hasPrefix("<!-- transcript-data: ")
         }
         return body.joined(separator: "\n")
+    }
+}
+
+private enum EditedSidecarPayload {
+    nonisolated static func decode<Value: Decodable>(_ type: Value.Type, named name: String, from markdown: String) throws -> Value {
+        let prefix = "<!-- \(name): "
+        let lines = markdown.components(separatedBy: .newlines)
+        guard let line = lines.last(where: { !$0.isEmpty }),
+              line.hasPrefix(prefix), line.hasSuffix(" -->"),
+              let data = Data(base64Encoded: String(line.dropFirst(prefix.count).dropLast(4))) else {
+            throw SummaryError.persistenceFailed("編集データを読み込めません。ファイルを確認してください。")
+        }
+        return try JSONDecoder().decode(type, from: data)
     }
 }
