@@ -108,7 +108,7 @@ final class AppSettings: ObservableObject {
                 warnings.append("以前の保存先を確認できません。ドライブを接続して設定で選び直してください。\n\(error.localizedDescription)")
             }
         }
-        return (Array(directories), warnings)
+        return (Array(Set(directories.map { $0.resolvingSymlinksInPath().standardizedFileURL })), warnings)
     }
 
     private func rememberRecoveryBookmark(_ data: Data) {
@@ -209,7 +209,8 @@ final class SettingsRecordingLibraryStore: RecordingLibraryStoring {
     func recordings() async throws -> [RecordingLibraryItem] {
         let url = try settings.resolveOutputDirectory()
         var items = try await OutputDirectoryRecordingLibraryStore(outputDirectoryURL: url).recordings()
-        for previous in settings.recoveryDirectories().directories where previous != url {
+        let currentPath = url.resolvingSymlinksInPath().standardizedFileURL.path
+        for previous in settings.recoveryDirectories().directories where previous.path != currentPath {
             let oldItems = (try? await OutputDirectoryRecordingLibraryStore(outputDirectoryURL: previous).recordings()) ?? []
             items += oldItems.filter { (try? RecordingRecoveryStore.loadReport(in: $0.sessionDirectoryURL)) != nil }
         }

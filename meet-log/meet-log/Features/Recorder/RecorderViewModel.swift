@@ -539,7 +539,7 @@ final class RecorderViewModel: ObservableObject {
 
     @discardableResult
     func addNote(_ text: String) -> Bool {
-        guard !isTestRecording, isRecording || isPaused else {
+        guard !isTestRecording, !isStarting, isRecording || isPaused else {
             return false
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -140,7 +140,7 @@ struct RecordingRecoveryTests {
     }
 
     private func directory(in root: URL = FileManager.default.temporaryDirectory, name: String = UUID().uuidString) throws -> URL {
-        let url = root.appendingPathComponent(name, isDirectory: true)
+        let url = root.appendingPathComponent(name, isDirectory: true).resolvingSymlinksInPath()
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }
