@@ -51,16 +51,14 @@ final class LibraryViewModel: ObservableObject {
     private var editingItem: RecordingLibraryItem?
 
     @Published private(set) var state: State = .loading
-    @Published var selectedID: RecordingLibraryItem.ID? {
-        didSet {
-            guard editDraft == nil else {
-                selectedID = oldValue
+    @Published private var selectedRecordingID: RecordingLibraryItem.ID?
+    var selectedID: RecordingLibraryItem.ID? {
+        get { selectedRecordingID }
+        set {
+            guard editDraft == nil, selectedRecordingID != newValue else {
                 return
             }
-            guard selectedID != oldValue else {
-                return
-            }
-
+            selectedRecordingID = newValue
             stopPlayback()
             loadSummaryForSelectedItem()
         }
