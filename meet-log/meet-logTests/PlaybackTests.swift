@@ -15,6 +15,8 @@ struct PlaybackTests {
         #expect(PlaybackTimeline.position(1, duration: .infinity) == nil)
         #expect(PlaybackTimeline.position(1, duration: 0) == nil)
         #expect(PlaybackTimeline.label(3661) == "1:01:01")
+        #expect(TranscriptSegment(text: "Invalid", timestamp: .infinity, duration: 1).timeRangeText == "--:--–--:--")
+        #expect(RecordingNote(elapsed: .greatestFiniteMagnitude, text: "Invalid").timestamp == "--:--")
     }
 
     @Test func audioOnlyImportSupportsSeekSpeedAndEndWithoutWrapping() async throws {

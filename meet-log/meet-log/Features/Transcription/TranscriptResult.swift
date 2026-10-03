@@ -87,7 +87,10 @@ nonisolated struct TranscriptSegment: Codable, Equatable, Sendable {
     }
 
     nonisolated private static func timeText(_ time: TimeInterval) -> String {
-        let totalSeconds = max(0, Int(time))
+        guard time.isFinite, time < Double(Int.max) else {
+            return "--:--"
+        }
+        let totalSeconds = Int(max(0, time))
         let hours = totalSeconds / 3_600
         let minutes = (totalSeconds % 3_600) / 60
         let seconds = totalSeconds % 60

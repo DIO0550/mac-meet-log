@@ -1,3 +1,4 @@
+import DualTrackRecorder
 import Foundation
 
 struct PlaybackSource: Hashable {
@@ -7,6 +8,15 @@ struct PlaybackSource: Hashable {
     init(audioURLs: [URL], videoURL: URL? = nil) {
         self.audioURLs = audioURLs
         self.videoURL = videoURL
+    }
+
+    init(completion: RecordingCompletion) {
+        if let mixdownURL = completion.mixdown.url {
+            audioURLs = [mixdownURL]
+        } else {
+            audioURLs = [completion.systemAudioURL, completion.microphoneURL].compactMap { $0 }
+        }
+        videoURL = completion.screenCaptureURL
     }
 
     init(item: RecordingLibraryItem) {

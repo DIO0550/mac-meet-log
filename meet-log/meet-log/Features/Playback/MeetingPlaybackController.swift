@@ -23,7 +23,11 @@ final class MeetingPlaybackController: ObservableObject {
     private var endObserver: NSObjectProtocol?
     private var statusObserver: NSKeyValueObservation?
 
-    init(loader: any PlaybackMediaLoading = PlaybackMediaLoader()) {
+    convenience init() {
+        self.init(loader: PlaybackMediaLoader())
+    }
+
+    init(loader: any PlaybackMediaLoading) {
         self.loader = loader
     }
 

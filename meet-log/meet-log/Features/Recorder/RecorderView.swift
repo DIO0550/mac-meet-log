@@ -11,6 +11,7 @@ import SwiftUI
 
 struct RecorderView: View {
     @StateObject private var viewModel: RecorderViewModel
+    @StateObject private var playback = MeetingPlaybackController()
 
     @MainActor
     init() {
@@ -52,10 +53,11 @@ struct RecorderView: View {
                         revealAction: viewModel.revealCompletionInFinder,
                         dismissAction: viewModel.dismiss
                     )
+                    MeetingPlaybackView(controller: playback, source: PlaybackSource(completion: completion))
                     if !viewModel.hasUnsavedNotes,
                        let trackURL = completion.revealURL,
                        let url = RecordingNoteStore().url(for: trackURL) {
-                        SavedRecordingNotesView(url: url, duration: completion.duration)
+                        SavedRecordingNotesView(url: url, duration: completion.duration, seek: playback.jump)
                             .id(url)
                     }
                 } else {

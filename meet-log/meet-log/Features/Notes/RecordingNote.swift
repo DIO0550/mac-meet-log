@@ -14,6 +14,9 @@ struct RecordingNote: Codable, Equatable, Identifiable, Sendable {
     }
 
     var timestamp: String {
-        Duration.seconds(elapsed).recorderDisplayString
+        guard elapsed.isFinite, elapsed >= 0, elapsed < Double(Int64.max) else {
+            return "--:--"
+        }
+        return Duration.seconds(elapsed).recorderDisplayString
     }
 }
