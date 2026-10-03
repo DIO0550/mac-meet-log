@@ -3,6 +3,7 @@ import SwiftUI
 struct ScreenTranscriptView: View {
     let transcript: TranscriptResult?
     let warning: String?
+    var seek: ((Double) -> Void)? = nil
 
     var body: some View {
         if let warning {
@@ -23,7 +24,11 @@ struct ScreenTranscriptView: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(Array(transcript.screenSegments.enumerated()), id: \.offset) { entry in
                         HStack(alignment: .top, spacing: 12) {
-                            Text(entry.element.timeRangeText)
+                            PlaybackTimestampButton(
+                                title: entry.element.timeRangeText,
+                                seconds: entry.element.timestamp,
+                                seek: seek
+                            )
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
                                 .frame(width: 110, alignment: .leading)

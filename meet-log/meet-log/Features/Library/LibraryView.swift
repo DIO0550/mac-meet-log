@@ -371,11 +371,15 @@ private struct LibraryDetailPane: View {
                 VStack(alignment: .leading, spacing: 22) {
                     titleBlock(item)
                     actions
+                    MeetingPlaybackView(controller: viewModel.playback, source: PlaybackSource(item: item))
                     transcriptSection
-                    ScreenTranscriptView(transcript: viewModel.transcript, warning: viewModel.screenOCRWarning)
+                    ScreenTranscriptView(
+                        transcript: viewModel.transcript, warning: viewModel.screenOCRWarning,
+                        seek: viewModel.playback.jump
+                    )
                     summarySection(item)
                     if let url = RecordingNoteStore().url(for: item.mixdownURL) {
-                        SavedRecordingNotesView(url: url, duration: item.duration)
+                        SavedRecordingNotesView(url: url, duration: item.duration, seek: viewModel.playback.jump)
                             .id(url)
                     }
                     fileStatus(item)
@@ -451,15 +455,6 @@ private struct LibraryDetailPane: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(viewModel.isRemixingSelectedItem)
-            } else {
-                Button(action: viewModel.togglePlayback) {
-                    Label(
-                        viewModel.isPlayingSelectedItem ? "Stop" : "Play Mixdown",
-                        systemImage: viewModel.isPlayingSelectedItem ? "stop.fill" : "play.fill"
-                    )
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!item.hasUsableMixdown)
             }
 
             Button(action: viewModel.revealSelectedItemInFinder) {
@@ -491,20 +486,6 @@ private struct LibraryDetailPane: View {
             }
             .buttonStyle(.bordered)
 
-            if item.existingScreenCaptureURL != nil {
-                Button(action: viewModel.openSelectedScreenCapture) {
-                    Label("Open Screen", systemImage: "play.rectangle")
-                }
-                .buttonStyle(.bordered)
-            }
-
-            if case let .failed(message) = viewModel.playbackState {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .lineLimit(2)
-            }
-
             if case let .failed(id, message) = viewModel.remixState, id == item.id {
                 Text(message)
                     .font(.caption)
@@ -523,30 +504,7 @@ private struct LibraryDetailPane: View {
                 Text("Transcript")
                     .font(.headline)
 
-                if transcript.segments.contains(where: { $0.speaker != nil }) {
-                    ForEach(Array(transcript.segments.enumerated()), id: \.offset) { entry in
-                        let segment = entry.element
-                        HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            Text(segment.timeRangeText)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.secondary)
-                                .frame(width: 90, alignment: .leading)
-
-                            Text(segment.speaker?.displayName ?? "")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(segment.speaker == .me ? Color.green : Color.blue)
-                                .frame(width: 34, alignment: .leading)
-
-                            Text(segment.text)
-                                .font(.callout)
-                                .textSelection(.enabled)
-                        }
-                    }
-                } else {
-                    Text(transcript.text)
-                        .font(.callout)
-                        .textSelection(.enabled)
-                }
+                PlaybackTranscriptView(transcript: transcript, seek: viewModel.playback.jump)
             }
             .padding(16)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))

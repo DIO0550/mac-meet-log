@@ -3,6 +3,7 @@ import UniformTypeIdentifiers
 
 struct AudioProcessingView: View {
     @StateObject private var viewModel: AudioProcessingViewModel
+    @StateObject private var playback = MeetingPlaybackController()
     @State private var isDropTargeted = false
     @State private var exportDocument: MeetingExportDocument?
     let recorderAction: () -> Void
@@ -33,6 +34,9 @@ struct AudioProcessingView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     importSection
                     stateSection
+                    if let item = viewModel.state.importedItem {
+                        MeetingPlaybackView(controller: playback, source: PlaybackSource(audioURLs: [item.url]))
+                    }
                     transcriptSection
                     summarySection
                     exportSection
@@ -222,10 +226,14 @@ struct AudioProcessingView: View {
                 actionSystemImage: "doc.on.doc",
                 action: viewModel.copyTranscript
             ) {
-                Text(transcriptText)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                if let transcript = viewModel.state.transcript {
+                    PlaybackTranscriptView(transcript: transcript, seek: playback.jump)
+                } else {
+                    Text(transcriptText)
+                        .font(.callout)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }

@@ -43,10 +43,19 @@ final class LibraryViewModel: ObservableObject {
                 return
             }
 
+            stopPlayback()
             loadSummaryForSelectedItem()
         }
     }
-    @Published private(set) var playbackState: MixdownPlaybackController.State = .stopped
+    private var playbackStorage: MeetingPlaybackController?
+    var playback: MeetingPlaybackController {
+        if let playbackStorage {
+            return playbackStorage
+        }
+        let controller = MeetingPlaybackController()
+        playbackStorage = controller
+        return controller
+    }
     @Published private(set) var summaryState: SummaryState = .idle
     @Published private(set) var screenOCRWarning: String?
     @Published private(set) var transcript: TranscriptResult?
@@ -70,9 +79,7 @@ final class LibraryViewModel: ObservableObject {
     private let mixdownService: RecordingLibraryMixdownServicing
     private let searchService: LibrarySearchService
     private var searchTask: Task<Void, Never>?
-    private lazy var playbackController = MixdownPlaybackController { [weak self] state in
-        self?.playbackState = state
-    }
+    private var summaryLoadID = UUID()
 
     convenience init() {
         self.init(
@@ -147,14 +154,6 @@ final class LibraryViewModel: ObservableObject {
         return !searchProgress.isComplete
     }
 
-    var isPlayingSelectedItem: Bool {
-        guard let selectedItem else {
-            return false
-        }
-
-        return playbackState == .playing(selectedItem.mixdownURL)
-    }
-
     var isSummaryBusy: Bool {
         switch summaryState {
         case .loadingSaved, .transcribing, .recognizingScreen, .summarizing, .summaryProgress:
@@ -191,31 +190,45 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func loadSummaryForSelectedItem() {
-        guard let selectedItem, selectedItem.hasTranscribableAudio else {
+        let request = UUID()
+        summaryLoadID = request
+        transcript = nil
+        screenOCRWarning = nil
+        guard let selectedItem else {
             summaryState = .idle
             return
         }
 
         let item = selectedItem
-        transcript = nil
-        screenOCRWarning = nil
         summaryState = .loadingSaved
 
         Task {
             do {
-                transcript = try? await summaryStore.transcript(for: item)
-                if let summary = try await summaryStore.summary(for: item) {
+                let savedTranscript = try? await summaryStore.transcript(for: item)
+                guard self.summaryLoadID == request, self.selectedItem?.mixdownURL == item.mixdownURL else {
+                    return
+                }
+                transcript = savedTranscript
+                let summary = try await summaryStore.summary(for: item)
+                guard self.summaryLoadID == request, self.selectedItem?.mixdownURL == item.mixdownURL else {
+                    return
+                }
+                if let summary {
                     summaryState = .summarized(summary)
                 } else {
                     summaryState = .idle
                 }
             } catch {
+                guard self.summaryLoadID == request, self.selectedItem?.mixdownURL == item.mixdownURL else {
+                    return
+                }
                 summaryState = .failed(error.localizedDescription)
             }
         }
     }
 
     func generateSummaryForSelectedItem(template: SummaryTemplate? = nil) {
+        summaryLoadID = UUID()
         guard let selectedItem, selectedItem.hasTranscribableAudio else {
             summaryState = .idle
             return
@@ -234,16 +247,22 @@ final class LibraryViewModel: ObservableObject {
                     locale: Locale(identifier: AppSettings.shared.preferences.localeIdentifier)
                 )
                 if let videoURL = item.existingScreenCaptureURL {
-                    summaryState = .recognizingScreen
+                    if self.selectedItem?.mixdownURL == item.mixdownURL {
+                        summaryState = .recognizingScreen
+                    }
                     do {
                         transcript = try await screenEnricher.enrich(transcript, videoURL: videoURL)
                     } catch {
-                        screenOCRWarning = "画面テキストを抽出できませんでした。音声の処理を続けます: \(error.localizedDescription)"
+                        if self.selectedItem?.mixdownURL == item.mixdownURL {
+                            screenOCRWarning = "画面テキストを抽出できませんでした。音声の処理を続けます: \(error.localizedDescription)"
+                        }
                     }
                 }
-                self.transcript = transcript
                 try await summaryStore.save(transcript, for: item)
-                summaryState = .summarizing
+                if self.selectedItem?.mixdownURL == item.mixdownURL {
+                    self.transcript = transcript
+                    summaryState = .summarizing
+                }
                 let selectedTemplate = template ?? SummaryTemplate.builtIn
                 let result = await summaryService.summarize(
                     transcript,
@@ -253,21 +272,16 @@ final class LibraryViewModel: ObservableObject {
                 }
                 await handleSummaryResult(result, for: item)
             } catch {
+                guard self.selectedItem?.mixdownURL == item.mixdownURL else {
+                    return
+                }
                 summaryState = .failed(error.localizedDescription)
             }
         }
     }
 
-    func togglePlayback() {
-        guard let selectedItem, selectedItem.hasUsableMixdown else {
-            return
-        }
-
-        playbackController.toggle(url: selectedItem.mixdownURL)
-    }
-
     func stopPlayback() {
-        playbackController.stop()
+        playbackStorage?.stop()
     }
 
     func revealSelectedItemInFinder() {
@@ -276,14 +290,6 @@ final class LibraryViewModel: ObservableObject {
         }
 
         LibraryFinder.reveal(fileURL: selectedItem.mixdownURL)
-    }
-
-    func openSelectedScreenCapture() {
-        guard let url = selectedItem?.existingScreenCaptureURL else {
-            return
-        }
-
-        NSWorkspace.shared.open(url)
     }
 
     func exportDocumentForSelectedItem() -> MeetingExportDocument? {
@@ -401,13 +407,25 @@ final class LibraryViewModel: ObservableObject {
         case let .summarized(summary):
             do {
                 try await summaryStore.save(summary, for: item)
+                guard self.selectedItem?.mixdownURL == item.mixdownURL else {
+                    return
+                }
                 summaryState = .summarized(summary)
             } catch {
+                guard self.selectedItem?.mixdownURL == item.mixdownURL else {
+                    return
+                }
                 summaryState = .failed(error.localizedDescription)
             }
         case let .unavailable(reason):
+            guard self.selectedItem?.mixdownURL == item.mixdownURL else {
+                return
+            }
             summaryState = .unavailable(reason.localizedDescription)
         case let .failed(error):
+            guard self.selectedItem?.mixdownURL == item.mixdownURL else {
+                return
+            }
             summaryState = .failed(error.localizedDescription)
         }
     }

@@ -121,3 +121,26 @@ shown below the screen text. `ScreenOCRIntegrationTests` generates a 60-second,
 an on-device long-meeting benchmark; actual cost depends on how often the screen
 changes. Frames are processed one at a time, so image memory does not grow with
 recording length. No OCR controls are exposed in Settings in this first version.
+
+### Timestamp playback
+
+Library details and imported-audio results include a shared playback panel. Select
+an utterance, saved note, or screen OCR timestamp to jump and play. The slider
+seeks without changing the paused/playing state; the speed selector supports
+0.5×–2×. At the end, Play restarts from zero. A timestamp beyond the end stops at
+the end; invalid timestamps are ignored.
+
+Audio and screen video use one AVPlayer composition and clock. Recorded timestamps
+are preserved, including leading gaps; capture has already removed paused time.
+When no mix exists, available source audio tracks play together. Audio-only,
+screen-only, missing and unreadable media are identified in the playback panel.
+Switching recordings or leaving the screen stops and releases the old media.
+Legacy transcripts without segment timestamps remain readable with manual seek.
+
+`PlaybackTests` covers seek boundaries, speed, missing files, stale loads, source
+track overlap and synthetic audio/video time ranges. Physical-device validation
+is still required: record audible/visible markers before and after at least two
+pause/resume cycles, then check utterance/note/OCR jumps, slider seeking and
+0.5×/1×/2× playback against those markers. Record the Mac/macOS version and observed
+sync offset at the start, after each resume and at the end. Synthetic tests do not
+establish capture synchronization on a real Mac.
