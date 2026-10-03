@@ -12,6 +12,7 @@ struct AudioLevelMeter {
     }
 
     mutating func events(for buffer: AVAudioPCMBuffer, track: RecordingTrack, at date: Date = Date()) -> [RecorderEvent] {
+        guard buffer.frameLength > 0 else { return [] }
         guard shouldEmit(at: date) else {
             return []
         }

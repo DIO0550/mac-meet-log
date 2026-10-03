@@ -28,6 +28,17 @@ final class RecorderViewModel: ObservableObject {
 
     @Published private(set) var notes: [RecordingNote] = []
     @Published private(set) var hasUnsavedNotes = false
+    @Published private(set) var healthWarnings: [RecordingHealthMonitor.Warning] = []
+    @Published private(set) var testCompletion: RecordingCompletion?
+    @Published private(set) var isTestRecording = false
+    @Published private(set) var isStarting = false
+    @Published private(set) var isStopping = false
+    private var healthMonitor = RecordingHealthMonitor()
+    private var healthTask: Task<Void, Never>?
+    private var testStopTask: Task<Void, Never>?
+    private var lastStorageCheck: TimeInterval?
+    private let uptime: () -> TimeInterval
+    private let waitForInputTest: () async throws -> Void
     private let now: () -> Date
 
     private var settingsSubscription: AnyCancellable?
@@ -44,7 +55,11 @@ final class RecorderViewModel: ObservableObject {
         self.init(recorder: RecorderClient(), settings: .shared)
     }
 
-    init(recorder: RecorderClient, now: @escaping () -> Date = Date.init, settings: AppSettings? = nil) {
+    init(recorder: RecorderClient, now: @escaping () -> Date = Date.init, settings: AppSettings? = nil,
+         uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         waitForInputTest: @escaping () async throws -> Void = { try await Task.sleep(for: .seconds(5)) }) {
+        self.uptime = uptime
+        self.waitForInputTest = waitForInputTest
         self.now = now
         self.recorder = recorder
         refreshMicrophonePermissionState()
@@ -61,6 +76,8 @@ final class RecorderViewModel: ObservableObject {
     }
 
     deinit {
+        healthTask?.cancel()
+        testStopTask?.cancel()
         eventTask?.cancel()
         microphoneDeviceTask?.cancel()
         timerTask?.cancel()
@@ -99,15 +116,15 @@ final class RecorderViewModel: ObservableObject {
     }
 
     var canStart: Bool {
-        !hasUnsavedNotes && sources.hasAnyEnabledSource && !isPreparing && !isRecording && !isPaused && !isFinalizing
+        !isStarting && !isStopping && !hasUnsavedNotes && sources.hasAnyEnabledSource && !isPreparing && !isRecording && !isPaused && !isFinalizing
     }
 
     var canEditSources: Bool {
-        !isPreparing && !isRecording && !isPaused && !isFinalizing
+        !isStarting && !isStopping && !isPreparing && !isRecording && !isPaused && !isFinalizing
     }
 
     var canSelectMicrophoneInput: Bool {
-        sources.microphoneEnabled && !isPreparing && !isPaused && !isFinalizing && !isSwitchingMicrophoneInput
+        !isStarting && !isStopping && sources.microphoneEnabled && !isPreparing && !isPaused && !isFinalizing && !isSwitchingMicrophoneInput
     }
 
     var canRequestSystemAudioPermission: Bool {
@@ -168,7 +185,8 @@ final class RecorderViewModel: ObservableObject {
     }
 
     var statusText: String {
-        switch state {
+        if isTestRecording && isRecording { return "Testing inputs (5 seconds)" }
+        return switch state {
         case .idle:
             "Ready"
         case .preparing:
@@ -340,51 +358,153 @@ final class RecorderViewModel: ObservableObject {
         }
     }
 
-    func start() {
-        guard canStart else {
-            present(error: RecorderError.invalidSources("Choose at least one recording source."))
-            return
-        }
+    func start() { start(isTest: false) }
 
+    func startTest() { start(isTest: true) }
+
+    private func start(isTest: Bool) {
+        guard canStart else { return }
+        guard !isTest || sources.systemAudioEnabled || sources.microphoneEnabled else { return }
+        isStarting = true
+        testStopTask?.cancel()
+        isTestRecording = isTest
+        testCompletion = nil
+        healthWarnings = []
+        healthMonitor.begin(sources: sources, at: uptime())
         Task {
+            defer { isStarting = false }
             do {
                 clearTransientPresentation()
                 try await dismissCompletedSessionIfNeeded()
-                try await prepareMicrophonePermissionIfNeeded()
                 completion = nil
+                let bytes = try recorder.prepareStorage(isTest)
+                let status = RecordingHealthMonitor.storageStatus(bytes: bytes, screenEnabled: !isTest && sources.screenCaptureEnabled)
+                guard status != .critical else {
+                    throw RecorderError.outputFailed("256 MiB or less is available. Free space before recording.")
+                }
+                guard status != .unavailable else {
+                    throw RecorderError.outputFailed("Could not check free space at the recording destination.")
+                }
+                if status == .low { notifyHealth(.lowStorage) }
+                try await prepareMicrophonePermissionIfNeeded()
                 notes = []
                 elapsed = .zero
                 recordingBaselineElapsed = .zero
                 recordingBaselineDate = nil
-                try await recorder.start(sources, selectedMicrophoneSelection, selectedScreenCaptureTarget)
-                if sources.systemAudioEnabled {
-                    systemAudioPermissionState = .granted
+                let captureSources = RecordingSources(
+                    systemAudioEnabled: sources.systemAudioEnabled,
+                    microphoneEnabled: sources.microphoneEnabled,
+                    screenCaptureEnabled: !isTest && sources.screenCaptureEnabled
+                )
+                try await recorder.start(captureSources, selectedMicrophoneSelection, selectedScreenCaptureTarget)
+                healthMonitor.resume(sources: captureSources, at: uptime())
+                if sources.systemAudioEnabled { systemAudioPermissionState = .granted }
+                if isTest {
+                    testStopTask = Task { [weak self, waitForInputTest] in
+                        do { try await waitForInputTest() } catch { return }
+                        guard !Task.isCancelled else { return }
+                        self?.stop()
+                    }
                 }
             } catch {
-                present(error: error)
+                stopHealthMonitoring()
+                // Preflight failures have not changed the core recorder's state.
+                // Capture failures publish their own failed state through the event stream.
+                presentNonFatal(error: error)
             }
         }
     }
 
     func pause() {
+        guard !isTestRecording, !isStarting, !isStopping, isRecording else { return }
         runCommand {
             try await self.recorder.pause()
         }
     }
 
     func resume() {
+        guard !isStarting, !isStopping, isPaused else { return }
         runCommand {
             try await self.recorder.resume()
         }
     }
 
-    func stop() {
-        runCommand {
-            let result = try await self.recorder.stop()
-            self.completion = RecordingCompletion(result: result)
-            self.elapsed = result.duration
-            self.saveNotes()
+    func stop() { stop(preserveSpace: false) }
+
+    private func stop(preserveSpace: Bool) {
+        guard (isRecording || isPaused), !isStarting, !isStopping else { return }
+        isStopping = true
+        testStopTask?.cancel()
+        stopHealthMonitoring()
+        Task {
+            defer { isStopping = false }
+            do {
+                let result = try await (preserveSpace ? recorder.stopPreservingTracks() : recorder.stop())
+                receiveCompletion(result)
+            } catch {
+                present(error: error)
+            }
         }
+    }
+
+    private func receiveCompletion(_ result: RecordingResult) {
+        testStopTask?.cancel()
+        elapsed = result.duration
+        if isTestRecording {
+            testCompletion = RecordingCompletion(result: result)
+            return
+        }
+        completion = RecordingCompletion(result: result)
+        saveNotes()
+    }
+
+    func dismissHealthWarnings() { healthWarnings = [] }
+
+    private func notifyHealth(_ warning: RecordingHealthMonitor.Warning) {
+        guard healthMonitor.shouldNotify(warning, at: uptime()) else { return }
+        displayHealth(warning)
+    }
+
+    private func displayHealth(_ warning: RecordingHealthMonitor.Warning) {
+        if !healthWarnings.contains(warning) { healthWarnings.append(warning) }
+        NSSound.beep()
+    }
+
+    /// Callable with an injected clock/capacity reader for deterministic tests.
+    func checkRecordingHealth() {
+        guard (isRecording || isPaused), !isStarting, !isStopping else { return }
+        let time = uptime()
+        if isRecording {
+            healthMonitor.audioWarnings(at: time).forEach(displayHealth)
+        }
+        guard lastStorageCheck.map({ time - $0 >= 10 }) ?? true else { return }
+        lastStorageCheck = time
+        let bytes = try? recorder.availableStorage()
+        switch RecordingHealthMonitor.storageStatus(bytes: bytes, screenEnabled: !isTestRecording && sources.screenCaptureEnabled) {
+        case .normal: break
+        case .low: notifyHealth(.lowStorage)
+        case .unavailable: notifyHealth(.storageUnavailable)
+        case .critical:
+            notifyHealth(.criticalStorage)
+            stop(preserveSpace: true)
+        }
+    }
+
+    private func startHealthMonitoring() {
+        guard healthTask == nil else { return }
+        lastStorageCheck = nil
+        healthTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                self?.checkRecordingHealth()
+            }
+        }
+    }
+
+    private func stopHealthMonitoring() {
+        healthMonitor.pause()
+        healthTask?.cancel()
+        healthTask = nil
     }
 
     func dismiss() {
@@ -412,7 +532,7 @@ final class RecorderViewModel: ObservableObject {
 
     @discardableResult
     func addNote(_ text: String) -> Bool {
-        guard isRecording || isPaused else {
+        guard !isTestRecording, isRecording || isPaused else {
             return false
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -632,29 +752,37 @@ final class RecorderViewModel: ObservableObject {
 
         switch newState {
         case .idle:
+            stopHealthMonitoring()
             elapsed = .zero
             stopElapsedTimer()
         case .preparing:
+            stopHealthMonitoring()
             stopElapsedTimer()
         case let .recording(startedAt):
+            healthMonitor.resume(sources: sources, at: uptime())
+            startHealthMonitoring()
             startElapsedTimer(from: startedAt, previousState: previousState)
         case let .paused(pausedElapsed):
+            healthMonitor.pause()
             elapsed = pausedElapsed
             stopElapsedTimer()
         case .finalizing:
+            stopHealthMonitoring()
             stopElapsedTimer()
         case let .complete(result):
-            completion = RecordingCompletion(result: result)
-            elapsed = result.duration
+            stopHealthMonitoring()
             stopElapsedTimer()
-            saveNotes()
+            receiveCompletion(result)
         case let .failed(error):
+            testStopTask?.cancel()
+            stopHealthMonitoring()
             present(error: error)
             stopElapsedTimer()
         }
     }
 
     private func apply(level snapshot: AudioLevelSnapshot) {
+        if isRecording { healthMonitor.receive(snapshot, at: uptime()) }
         let value = min(max(Double(snapshot.peak), 0), 1)
 
         switch snapshot.track {
@@ -671,10 +799,18 @@ final class RecorderViewModel: ObservableObject {
 
     private func apply(microphoneInputDeviceSelection selection: MicrophoneInputDeviceSelection) {
         selectedMicrophoneDeviceID = selection.deviceID
+        if isRecording { healthMonitor.reset(.microphone, at: uptime()) }
         isSwitchingMicrophoneInput = false
     }
 
     private func apply(microphoneDevices devices: [AudioInputDevice]) {
+        let previousInput = selectedMicrophoneDeviceID ?? microphoneDevices.first(where: \.isDefault)?.id
+        let currentDefault = devices.first(where: \.isDefault)?.id
+        if sources.microphoneEnabled, isRecording || isPaused, let previousInput,
+           !devices.contains(where: { $0.id == previousInput })
+            || (selectedMicrophoneDeviceID == nil && previousInput != currentDefault) {
+            notifyHealth(.microphoneDisconnected)
+        }
         microphoneDevices = devices
 
         if let selectedMicrophoneDeviceID,
@@ -814,6 +950,9 @@ struct RecorderClient {
     let pause: () async throws -> Void
     let resume: () async throws -> Void
     let stop: () async throws -> RecordingResult
+    let stopPreservingTracks: () async throws -> RecordingResult
+    let prepareStorage: (Bool) throws -> Int64?
+    let availableStorage: () throws -> Int64?
     let dismiss: () async throws -> Void
     let switchMicrophoneInput: (MicrophoneInputDeviceSelection) async throws -> Void
     let requestSystemAudioPermission: () async throws -> Void
@@ -824,6 +963,12 @@ struct RecorderClient {
     }
 
     init(recorder: DualTrackRecorder, outputDirectory: (() throws -> URL)? = nil) {
+        let destination = RecordingDestination(resolve: {
+            try outputDirectory?() ?? RecordingStorage.defaultOutputDirectoryURL
+        })
+        prepareStorage = { try destination.prepare(isTest: $0) }
+        availableStorage = { try destination.availableBytes() }
+        stopPreservingTracks = { try await recorder.stop(createMixdown: false) }
         events = recorder.events
         microphoneDevices = {
             try await recorder.microphoneInputDevices()
@@ -835,7 +980,7 @@ struct RecorderClient {
             try await recorder.screenCaptureTargets()
         }
         start = { sources, microphoneInput, screenCaptureTarget in
-            let directory = try outputDirectory?()
+            let directory = try destination.preparedURL()
             try await recorder.start(
                 sources: sources,
                 microphoneInput: microphoneInput,
@@ -880,7 +1025,10 @@ struct RecorderClient {
         dismiss: @escaping () async throws -> Void,
         switchMicrophoneInput: @escaping (MicrophoneInputDeviceSelection) async throws -> Void,
         requestSystemAudioPermission: @escaping () async throws -> Void = {},
-        requestScreenCapturePermission: @escaping () async throws -> Void = {}
+        requestScreenCapturePermission: @escaping () async throws -> Void = {},
+        prepareStorage: @escaping (Bool) throws -> Int64? = { _ in Int64.max },
+        availableStorage: @escaping () throws -> Int64? = { Int64.max },
+        stopPreservingTracks: (() async throws -> RecordingResult)? = nil
     ) {
         self.events = events
         self.microphoneDevices = microphoneDevices
@@ -890,6 +1038,9 @@ struct RecorderClient {
         self.pause = pause
         self.resume = resume
         self.stop = stop
+        self.stopPreservingTracks = stopPreservingTracks ?? stop
+        self.prepareStorage = prepareStorage
+        self.availableStorage = availableStorage
         self.dismiss = dismiss
         self.switchMicrophoneInput = switchMicrophoneInput
         self.requestSystemAudioPermission = requestSystemAudioPermission

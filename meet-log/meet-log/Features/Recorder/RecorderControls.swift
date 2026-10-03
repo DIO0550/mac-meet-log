@@ -11,6 +11,12 @@ struct RecorderControls: View {
             microphonePicker
             screenCapturePicker
             commandButtons
+            if viewModel.canStart {
+                Button("Test Inputs (5 seconds)", action: viewModel.startTest)
+                Text("Speak and play system audio, then listen to each test track before the meeting.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -181,9 +187,12 @@ struct RecorderControls: View {
     private var commandButtons: some View {
         if viewModel.isRecording {
             HStack(spacing: 12) {
-                SecondaryRecorderButton(title: "Pause", systemImage: "pause.fill", action: viewModel.pause)
+                if !viewModel.isTestRecording {
+                    SecondaryRecorderButton(title: "Pause", systemImage: "pause.fill", action: viewModel.pause)
+                }
                 StopRecorderButton(action: viewModel.stop)
             }
+            .disabled(viewModel.isStarting || viewModel.isStopping)
         } else if viewModel.isPaused {
             HStack(spacing: 12) {
                 SecondaryRecorderButton(title: "Resume", systemImage: "play.fill", action: viewModel.resume)
