@@ -64,6 +64,13 @@ struct OutputDirectoryRecordingLibraryStore: RecordingLibraryStoring {
     }
 
     private func sessionItems(in directoryURL: URL) throws -> [RecordingLibraryItem] {
+        if fileManager.fileExists(atPath: directoryURL.appendingPathComponent(RecordingJournal.fileName).path),
+           !fileManager.fileExists(atPath: directoryURL.appendingPathComponent(RecordingJournal.completionFileName).path) {
+            let recovered = directoryURL.appendingPathComponent("recovered")
+            guard let journal = try? RecordingJournal.load(in: directoryURL),
+                  let report = try? RecordingRecoveryStore.loadReport(in: recovered), report.sessionID == journal.id else { return [] }
+            return try sessionItems(in: recovered)
+        }
         let fileURLs = try contentsOfDirectory(at: directoryURL)
             .filter { url in
                 var isDirectory: ObjCBool = false
@@ -71,7 +78,11 @@ struct OutputDirectoryRecordingLibraryStore: RecordingLibraryStoring {
                     && !isDirectory.boolValue
             }
         let fileNames = Set(fileURLs.map(\.lastPathComponent))
-        let stems = Set(fileNames.compactMap(RecordingLibraryItem.stem(fromFileName:)))
+        var stems = Set(fileNames.compactMap(RecordingLibraryItem.stem(fromFileName:)))
+        // A recovery can contain only notes when every media container was interrupted.
+        if fileNames.contains(RecordingRecoveryStore.reportFileName) {
+            stems.formUnion(fileNames.filter { $0.hasSuffix("_notes.json") }.map { String($0.dropLast(11)) })
+        }
 
         return stems.compactMap { stem in
             RecordingLibraryItem(

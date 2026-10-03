@@ -13,9 +13,11 @@ final class TrackFileWriter: TrackWriting {
     private var state: State = .open
     private var audioFile: AVAudioFile?
     private var lastFormat: AVAudioFormat?
+    private var recoverySegments: RecoveryAudioSegments
 
     init(url: URL) {
         self.url = url
+        recoverySegments = RecoveryAudioSegments(trackURL: url)
     }
 
     func write(_ buffer: AVAudioPCMBuffer) throws {
@@ -32,6 +34,7 @@ final class TrackFileWriter: TrackWriting {
             let file = try audioFile ?? makeAudioFile(for: buffer.format)
             let writableBuffer = try bufferForWriting(buffer, to: file.processingFormat)
             try file.write(from: writableBuffer)
+            try recoverySegments.write(writableBuffer)
         } catch let error as RecorderError {
             throw error
         } catch {
@@ -73,6 +76,7 @@ final class TrackFileWriter: TrackWriting {
         }
 
         audioFile = nil
+        try recoverySegments.close()
         return url
     }
 

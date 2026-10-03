@@ -1,6 +1,6 @@
 import Foundation
 
-struct RecordingNoteStore {
+nonisolated struct RecordingNoteStore {
     func load(from url: URL) throws -> [RecordingNote] {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return []
@@ -17,7 +17,7 @@ struct RecordingNoteStore {
         try encoder.encode(sorted(notes)).write(to: url, options: .atomic)
     }
 
-    func url(for trackURL: URL) -> URL? {
+    @MainActor func url(for trackURL: URL) -> URL? {
         guard let stem = RecordingLibraryItem.stem(fromFileName: trackURL.lastPathComponent) else {
             return nil
         }

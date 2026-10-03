@@ -390,6 +390,15 @@ private struct LibraryDetailPane: View {
         if let item = viewModel.selectedItem {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
+                    if let report = try? RecordingRecoveryStore.loadReport(in: item.sessionDirectoryURL) {
+                        GroupBox("復旧結果・欠損の可能性") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(Array(report.messages.enumerated()), id: \.offset) { _, message in
+                                    Text(message).font(.callout).textSelection(.enabled)
+                                }
+                            }
+                        }
+                    }
                     titleBlock(item)
                     actions
                     MeetingPlaybackView(controller: viewModel.playback, source: PlaybackSource(item: item))
