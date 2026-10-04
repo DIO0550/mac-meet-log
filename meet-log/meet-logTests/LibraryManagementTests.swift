@@ -274,7 +274,7 @@ private struct ManagementFixture {
     func loadedModel() async throws -> LibraryViewModel {
         let model = LibraryViewModel(
             store: store, transcriptionService: TranscriptionServiceFactory.makeDefault(),
-            summaryService: UnavailableSummaryService(.foundationModelsUnavailable("test")),
+            summaryService: UnavailableSummaryService(reason: .foundationModelsUnavailable("test")),
             summaryStore: MeetingSummarySidecarStore(), trashService: service
         )
         await model.load()
