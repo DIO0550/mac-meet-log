@@ -10,18 +10,8 @@ import AppKit
 import SwiftUI
 
 struct RecorderView: View {
-    @StateObject private var viewModel: RecorderViewModel
+    @ObservedObject var viewModel: RecorderViewModel
     @StateObject private var playback = MeetingPlaybackController()
-
-    @MainActor
-    init() {
-        self.init(viewModel: RecorderViewModel())
-    }
-
-    @MainActor
-    init(viewModel: @autoclosure @escaping () -> RecorderViewModel) {
-        _viewModel = StateObject(wrappedValue: viewModel())
-    }
 
     var body: some View {
         ScrollView {

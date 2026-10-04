@@ -30,6 +30,38 @@ When a Mac cannot summarize with Foundation Models, the app keeps the transcript
 
 - [Apple official transcription availability](Task/31-apple-official-transcription-availability.md)
 
+### Menu bar recording
+
+The menu bar shows **Recording**, **Paused**, **Stopped**, **Preparing**, **Saving**
+or **Error**, together with active elapsed time (pauses are excluded). Open it to
+start, pause, resume or stop capture, add a timestamped note, inspect errors and
+warnings, retry unsaved notes, or reopen the main window. Both surfaces use one
+application-owned recorder and the same notes sidecar; they cannot start separate
+recordings. The current source and microphone choices apply to menu bar starts.
+
+Closing the main window leaves the app and recording running. **Quit meet-log**
+(including the standard app menu / Command-Q) asks for confirmation during capture,
+startup, saving, or when notes are unsaved. **Cancel** keeps the session running;
+**Save and Quit** waits for pending startup / controls / finalization, stops capture,
+and saves notes. A stop or notes-save failure cancels that quit request and shows
+an error so the recording can be checked. Mixdown failure preserves source tracks
+and does not prevent quitting once notes are saved. Idle / already-saved sessions
+quit directly. Force Quit and crashes use the interrupted-recording recovery flow.
+
+The panel uses standard macOS buttons and text fields. Use Tab / Shift-Tab with
+macOS keyboard navigation enabled, Return to add a note, and Escape to dismiss the
+panel. While the panel is active, Command-R starts, Command-P pauses/resumes,
+Command-period stops and Command-O opens the main window. Controls have text
+labels and accessible state / elapsed-time labels for VoiceOver. These shortcuts
+are local to the app; no global hotkeys are installed.
+
+`MenuBarRecordingTests` covers shared-session command serialization, note timestamps
+and persistence, closed-window lifetime, cancelled / idle quit, quit during startup
+or saving, paused / input-test quit, and saving failures. Real-Mac verification is
+pending: operate from another app, close and reopen the main window during capture,
+check the menu bar timer and paused notes, cancel then confirm quit, induce a
+permission / destination error, and check keyboard navigation and VoiceOver.
+
 ### Timestamped notes
 
 While recording or paused, enter a note and choose **Add** (or press Return).
