@@ -44,6 +44,67 @@ final class LibraryViewModel: ObservableObject {
         let message: String
     }
 
+    @Published var metadataItem: RecordingLibraryItem?
+    @Published var trashPlan: LibraryTrashPlan?
+    @Published var managementMessage: String?
+    @Published var selectedTag: String? { didSet { scheduleSearch() } }
+    private let trashService: LibraryTrashService
+    private var editingActivity: UUID?
+    var availableTags: [String] { Array(Set(items.flatMap(\.tags))).sorted() }
+    var filteredItems: [RecordingLibraryItem] {
+        guard let selectedTag else { return items }
+        return items.filter { $0.tags.contains(selectedTag) }
+    }
+
+    func beginMetadataEditing() {
+        guard let item = selectedItem else { return }
+        guard !LibraryActivity.isBusy(item.mixdownURL), !isSummaryBusy else {
+            managementMessage = LibraryManagementError.busy.localizedDescription
+            return
+        }
+        managementMessage = nil
+        metadataItem = item
+    }
+
+    func saveMetadata(name: String, tags: [String]) async {
+        guard let item = metadataItem else { return }
+        do {
+            var metadata = try RecordingDisplayMetadataStore().load(stem: item.storageStem, directory: item.sessionDirectoryURL)
+                ?? RecordingDisplayMetadata(name: item.title, tags: item.tags, createdAt: item.createdAt)
+            metadata.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            metadata.tags = RecordingDisplayMetadata(name: name, tags: tags, createdAt: item.createdAt).tags
+            try trashService.saveMetadata(metadata, for: item)
+            metadataItem = nil
+            await refresh(shouldShowLoading: false)
+        } catch { managementMessage = error.localizedDescription }
+    }
+
+    func prepareTrash(_ scope: LibraryTrashScope) {
+        guard let item = selectedItem else { return }
+        do {
+            guard !LibraryActivity.isBusy(item.mixdownURL), !isSummaryBusy else { throw LibraryManagementError.busy }
+            let plan = try trashService.plan(for: item, scope: scope)
+            guard !plan.files.isEmpty else {
+                managementMessage = "移動できる対象ファイルがありません。再読み込みしてください。"
+                return
+            }
+            managementMessage = nil
+            trashPlan = plan
+        } catch { managementMessage = error.localizedDescription }
+    }
+
+    func confirmTrash() async {
+        guard let plan = trashPlan else { return }
+        do {
+            guard !LibraryActivity.isBusy(plan.item.mixdownURL) else { throw LibraryManagementError.busy }
+            stopPlayback()
+            let result = try trashService.execute(plan)
+            trashPlan = nil
+            managementMessage = result.message
+            await refresh(shouldShowLoading: false)
+        } catch { managementMessage = error.localizedDescription }
+    }
+
     @Published var editDraft: MeetingEditDraft?
     @Published private(set) var isSavingEdits = false
     @Published private(set) var editError: String?
@@ -55,7 +116,7 @@ final class LibraryViewModel: ObservableObject {
     var selectedID: RecordingLibraryItem.ID? {
         get { selectedRecordingID }
         set {
-            guard editDraft == nil, selectedRecordingID != newValue else {
+            guard editDraft == nil, metadataItem == nil, trashPlan == nil, selectedRecordingID != newValue else {
                 return
             }
             selectedRecordingID = newValue
@@ -132,9 +193,11 @@ final class LibraryViewModel: ObservableObject {
         summaryStore: MeetingSummaryStoring,
         mixdownService: RecordingLibraryMixdownServicing = RecordingMixdownService(),
         searchService: LibrarySearchService? = nil,
-        screenOCRService: ScreenOCRServicing = ScreenOCRService()
+        screenOCRService: ScreenOCRServicing = ScreenOCRService(),
+        trashService: LibraryTrashService = LibraryTrashService()
     ) {
         self.store = store
+        self.trashService = trashService
         self.trackAwareTranscriptionService = TrackAwareTranscriptionService(service: transcriptionService)
         self.screenEnricher = ScreenTranscriptEnricher(service: screenOCRService)
         self.summaryService = summaryService
@@ -298,15 +361,17 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func beginTranscriptEditing() {
-        guard !isSummaryBusy, editDraft == nil, let transcript, let item = selectedItem else { return }
+        guard metadataItem == nil, trashPlan == nil, !isSummaryBusy, editDraft == nil, let transcript, let item = selectedItem else { return }
         editingItem = item
+        editingActivity = LibraryActivity.begin(item.mixdownURL)
         editError = nil
         editDraft = MeetingEditDraft(transcript: transcript)
     }
 
     func beginSummaryEditing() {
-        guard !isSummaryBusy, editDraft == nil, let savedSummary, let item = selectedItem else { return }
+        guard metadataItem == nil, trashPlan == nil, !isSummaryBusy, editDraft == nil, let savedSummary, let item = selectedItem else { return }
         editingItem = item
+        editingActivity = LibraryActivity.begin(item.mixdownURL)
         editError = nil
         editDraft = MeetingEditDraft(summary: savedSummary)
     }
@@ -315,6 +380,8 @@ final class LibraryViewModel: ObservableObject {
         guard !isSavingEdits else { return }
         editDraft = nil
         editingItem = nil
+        LibraryActivity.end(editingActivity)
+        editingActivity = nil
         editError = nil
     }
 
@@ -354,6 +421,8 @@ final class LibraryViewModel: ObservableObject {
             }
             editDraft = nil
             editingItem = nil
+            LibraryActivity.end(editingActivity)
+            editingActivity = nil
             scheduleSearch()
         } catch {
             editError = error.localizedDescription
@@ -386,7 +455,7 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func runProcessing(_ stage: LibraryProcessingStage, template: SummaryTemplate? = nil, overwriteConfirmed: Bool = false) {
-        guard !isSummaryBusy, editDraft == nil, let item = selectedItem else {
+        guard metadataItem == nil, trashPlan == nil, !isSummaryBusy, editDraft == nil, let item = selectedItem else {
             return
         }
         // Saved text is reloaded below so external/manual edits are respected.
@@ -402,8 +471,10 @@ final class LibraryViewModel: ObservableObject {
         let locale = Locale(identifier: AppSettings.shared.preferences.localeIdentifier)
         let selectedTemplate = template ?? SummaryTemplate.builtIn
 
+        let activity = LibraryActivity.begin(item.mixdownURL)
         processingTask = Task {
             defer {
+                LibraryActivity.end(activity)
                 if processingRunID == runID {
                     processingRunID = nil
                     processingTask = nil
@@ -532,14 +603,16 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func remixSelectedItem() {
-        guard let selectedItem, selectedItem.canRemix, !isRemixingSelectedItem else {
+        guard metadataItem == nil, trashPlan == nil, let selectedItem, selectedItem.canRemix, !isRemixingSelectedItem else {
             return
         }
 
         let item = selectedItem
         remixState = .mixing(item.id)
+        let activity = LibraryActivity.begin(item.mixdownURL)
 
         Task {
+            defer { LibraryActivity.end(activity) }
             do {
                 _ = try await mixdownService.export(
                     systemAudioURL: item.existingSystemAudioURL,
@@ -555,14 +628,14 @@ final class LibraryViewModel: ObservableObject {
     }
 
     private func refresh(shouldShowLoading: Bool) async {
-        guard editDraft == nil else { return }
+        guard editDraft == nil, metadataItem == nil, trashPlan == nil else { return }
         if shouldShowLoading {
             state = .loading
         }
 
         do {
             let loadedItems = try await store.recordings()
-            guard editDraft == nil else { return }
+            guard editDraft == nil, metadataItem == nil, trashPlan == nil else { return }
             reconcileSelection(with: loadedItems)
             state = loadedItems.isEmpty ? .empty : .loaded(loadedItems)
             loadSummaryForSelectedItem()
@@ -581,7 +654,7 @@ final class LibraryViewModel: ObservableObject {
             return
         }
 
-        let searchableItems = items
+        let searchableItems = filteredItems
         searchProgress = LibrarySearchProgress(
             results: [],
             scannedCount: 0,

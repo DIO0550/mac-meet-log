@@ -25,6 +25,11 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
 
     let id: String
     let title: String
+    var tags: [String] = []
+    var screenRemoved = false
+    var metadataWarning: String?
+
+    var storageStem: String { Self.mixdownStem(from: mixdownURL) ?? id }
     let createdAt: Date
     let duration: Duration?
     let sessionDirectoryURL: URL
@@ -196,8 +201,20 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
         let microphoneExists = microphoneURL.map { fileManager.fileExists(atPath: $0.path) } ?? false
         let screenCaptureExists = screenCaptureURL.map { fileManager.fileExists(atPath: $0.path) } ?? false
 
+        let metadata: RecordingDisplayMetadata?
+        var metadataWarning: String?
+        do {
+            metadata = try RecordingDisplayMetadataStore().load(stem: stem, directory: directoryURL)
+        } catch {
+            metadata = nil
+            metadataWarning = "表示情報を読み込めません: \(error.localizedDescription)"
+        }
+        let recoveryID = (try? RecordingRecoveryStore.loadReport(in: directoryURL)).map { "recovered-\($0.sessionID.uuidString)" }
+        let hasRecoveredSidecars = recoveryID.map { directoryContents.contains("\($0)_summary.md") || directoryContents.contains("\($0)_transcript.md") } ?? false
+        let hasSidecars = ["\(stem)_library.json", "\(stem)_summary.md", "\(stem)_transcript.md", "\(stem)_notes.json"]
+            .contains { directoryContents.contains($0) }
         let hasRecoveredNotes = directoryContents.contains("recovery-report.json") && directoryContents.contains("\(stem)_notes.json")
-        guard mixdownExists || systemAudioExists || microphoneExists || screenCaptureExists || hasRecoveredNotes else {
+        guard mixdownExists || systemAudioExists || microphoneExists || screenCaptureExists || hasRecoveredNotes || hasSidecars || hasRecoveredSidecars else {
             return nil
         }
 
@@ -210,13 +227,13 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
         let durationURL = mixdownExists
             ? mixdownURL
             : (systemAudioURL ?? microphoneURL ?? screenCaptureURL)
-        let createdAt = Self.date(from: stem)
+        let createdAt = metadata?.createdAt ?? Self.date(from: stem)
             ?? durationURL.flatMap { try? fileManager.attributesOfItem(atPath: $0.path)[.creationDate] as? Date }
             ?? .now
 
         self.init(
             id: (try? RecordingRecoveryStore.loadReport(in: directoryURL)).map { "recovered-\($0.sessionID.uuidString)" } ?? stem,
-            title: Self.title(from: stem),
+            title: metadata.flatMap { $0.name.isEmpty ? nil : $0.name } ?? Self.title(from: stem),
             createdAt: createdAt,
             duration: durationURL.flatMap { durationProvider.duration(for: $0) },
             mixdownURL: mixdownURL,
@@ -231,6 +248,9 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
                 microphoneExists: microphoneExists
             )
         )
+        self.tags = metadata?.tags ?? []
+        self.screenRemoved = metadata?.screenRemoved == true && !screenCaptureExists
+        self.metadataWarning = metadataWarning
     }
 
     static func mixdownStem(from url: URL) -> String? {

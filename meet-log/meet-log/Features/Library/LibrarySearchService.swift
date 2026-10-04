@@ -2,12 +2,14 @@ import Foundation
 
 enum LibrarySearchSection: String, CaseIterable, Equatable, Sendable {
     case recording
+    case tags
     case summary
     case transcript
     case notes
 
     var title: String {
         switch self {
+        case .tags: return "タグ"
         case .recording:
             return "録音名"
         case .summary:
@@ -21,6 +23,7 @@ enum LibrarySearchSection: String, CaseIterable, Equatable, Sendable {
 
     var systemImage: String {
         switch self {
+        case .tags: return "tag"
         case .recording:
             return "waveform"
         case .summary:
@@ -183,6 +186,7 @@ struct LibrarySearchService: Sendable {
         var matches = [LibrarySearchMatch]()
 
         appendMatch(section: .recording, text: item.title, query: query, to: &matches)
+        appendMatch(section: .tags, text: item.tags.joined(separator: "、"), query: query, to: &matches)
 
         if let summary {
             let text = [

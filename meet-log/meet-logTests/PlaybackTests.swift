@@ -35,6 +35,7 @@ struct PlaybackTests {
         #expect(abs(controller.duration - 2) < 0.01)
         controller.jump(to: 0.7)
         #expect(controller.position == 0.7)
+        #expect(LibraryActivity.isBusy(url))
         #expect(controller.isPlaying)
         controller.setSpeed(1.5)
         #expect(controller.speed == 1.5)
@@ -49,6 +50,7 @@ struct PlaybackTests {
         #expect(controller.position == 0)
         #expect(controller.isPlaying)
         controller.pause()
+        #expect(!LibraryActivity.isBusy(url))
         #expect(!controller.isPlaying)
     }
 
@@ -99,6 +101,7 @@ struct PlaybackTests {
         while loader.requests.count < 1 {
             await Task.yield()
         }
+        #expect(LibraryActivity.isBusy(url))
         let second = Task { await controller.load(source) }
         while loader.requests.count < 2 {
             await Task.yield()

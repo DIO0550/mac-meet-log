@@ -51,6 +51,7 @@ struct LibraryView: View {
             audioImportViewModel.handleImporterResult(firstSelectedURL(from: result))
         }
         .onDisappear {
+            viewModel.discardEdits()
             viewModel.stopPlayback()
         }
         .sheet(isPresented: Binding(
@@ -65,6 +66,22 @@ struct LibraryView: View {
                 )
             }
         }
+        .sheet(item: $viewModel.metadataItem) { item in
+            LibraryMetadataEditor(item: item, save: { name, tags in
+                Task { await viewModel.saveMetadata(name: name, tags: tags) }
+            }, cancel: { viewModel.metadataItem = nil }, message: viewModel.managementMessage)
+        }
+        .sheet(item: $viewModel.trashPlan) { plan in
+            LibraryTrashConfirmation(plan: plan, confirm: {
+                Task { await viewModel.confirmTrash() }
+            }, cancel: { viewModel.trashPlan = nil }, message: viewModel.managementMessage)
+        }
+        .alert("Library", isPresented: Binding(
+            get: { viewModel.managementMessage != nil && viewModel.metadataItem == nil && viewModel.trashPlan == nil },
+            set: { if !$0 { viewModel.managementMessage = nil } }
+        )) {
+            Button("OK") { viewModel.managementMessage = nil }
+        } message: { Text(viewModel.managementMessage ?? "") }
         .alert("手動修正を上書きしますか？", isPresented: Binding(
             get: { viewModel.processingConfirmation != nil },
             set: { if !$0 { viewModel.cancelProcessingConfirmation() } }
@@ -195,10 +212,19 @@ private struct LibraryListPane: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TextField("録音名・要約・文字起こし・メモを検索", text: $viewModel.searchQuery)
+            TextField("会議名・タグ・要約・文字起こし・メモを検索", text: $viewModel.searchQuery)
                 .textFieldStyle(.roundedBorder)
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
+
+            Picker("タグ", selection: $viewModel.selectedTag) {
+                Text("すべてのタグ").tag(String?.none)
+                ForEach(viewModel.availableTags, id: \.self) { tag in
+                    Text(tag).tag(Optional(tag))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
 
             HStack {
                 Text(statusText)
@@ -219,7 +245,7 @@ private struct LibraryListPane: View {
                 searchResults
             } else {
                 List(selection: $viewModel.selectedID) {
-                    ForEach(viewModel.items) { item in
+                    ForEach(viewModel.filteredItems) { item in
                         LibraryItemRow(item: item)
                             .tag(item.id)
                             .contentShape(Rectangle())
@@ -345,6 +371,9 @@ private struct LibraryItemRow: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
+                if !item.tags.isEmpty {
+                    Text(item.tags.joined(separator: " · ")).font(.caption).foregroundStyle(.tint)
+                }
                 Text(item.dateText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -400,6 +429,14 @@ private struct LibraryDetailPane: View {
                         }
                     }
                     titleBlock(item)
+                    LibraryManagementActions(viewModel: viewModel)
+                    if item.screenRemoved {
+                        Label("画面動画は削除済みです。動画再生・再OCRは利用できません。保存済みOCRは引き続き利用できます。", systemImage: "video.slash")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
+                    if let warning = item.metadataWarning {
+                        Text(warning).foregroundStyle(.orange)
+                    }
                     actions
                     MeetingPlaybackView(controller: viewModel.playback, source: PlaybackSource(item: item))
                     transcriptSection
