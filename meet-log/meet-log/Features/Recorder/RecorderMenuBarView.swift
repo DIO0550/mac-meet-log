@@ -6,10 +6,13 @@ struct RecorderMenuBarLabel: View {
 
     var body: some View {
         let status = viewModel.menuBarStatus
-        Label("\(status.text) \(viewModel.elapsed.recorderDisplayString)", systemImage: status.systemImage)
-            .monospacedDigit()
-            .accessibilityLabel("meet-log, \(status.text), \(viewModel.elapsed.recorderDisplayString)")
-            .help("meet-log: \(status.text)")
+        HStack(spacing: 4) {
+            Image(systemName: status.systemImage)
+            Text("\(status.text) \(viewModel.elapsed.recorderDisplayString)").monospacedDigit()
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("meet-log, \(status.text), \(viewModel.elapsed.recorderDisplayString)")
+        .help("meet-log: \(status.text)")
     }
 }
 
