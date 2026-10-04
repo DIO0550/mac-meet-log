@@ -44,8 +44,8 @@ final class LibraryViewModel: ObservableObject {
         let message: String
     }
 
-    @Published var metadataItem: RecordingLibraryItem?
-    @Published var trashPlan: LibraryTrashPlan?
+    @Published private(set) var metadataItem: RecordingLibraryItem?
+    @Published private(set) var trashPlan: LibraryTrashPlan?
     @Published var managementMessage: String?
     @Published var selectedTag: String? { didSet { scheduleSearch() } }
     private let trashService: LibraryTrashService
@@ -66,6 +66,19 @@ final class LibraryViewModel: ObservableObject {
         metadataItem = item
     }
 
+    func cancelMetadataEditing() {
+        guard metadataItem != nil else { return }
+        managementMessage = nil
+        metadataItem = nil
+    }
+
+    func cancelTrash() {
+        // SwiftUI may notify dismissal after a successful move; retain its result message.
+        guard trashPlan != nil else { return }
+        managementMessage = nil
+        trashPlan = nil
+    }
+
     func saveMetadata(name: String, tags: [String]) async {
         guard let item = metadataItem else { return }
         do {
@@ -74,7 +87,7 @@ final class LibraryViewModel: ObservableObject {
             metadata.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
             metadata.tags = RecordingDisplayMetadata(name: name, tags: tags, createdAt: item.createdAt).tags
             try trashService.saveMetadata(metadata, for: item)
-            metadataItem = nil
+            cancelMetadataEditing()
             await refresh(shouldShowLoading: false)
         } catch { managementMessage = error.localizedDescription }
     }

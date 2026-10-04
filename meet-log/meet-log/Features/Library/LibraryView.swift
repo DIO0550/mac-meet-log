@@ -66,15 +66,21 @@ struct LibraryView: View {
                 )
             }
         }
-        .sheet(item: $viewModel.metadataItem) { item in
+        .sheet(item: Binding(
+            get: { viewModel.metadataItem },
+            set: { if $0 == nil { viewModel.cancelMetadataEditing() } }
+        )) { item in
             LibraryMetadataEditor(item: item, save: { name, tags in
                 Task { await viewModel.saveMetadata(name: name, tags: tags) }
-            }, cancel: { viewModel.metadataItem = nil }, message: viewModel.managementMessage)
+            }, cancel: viewModel.cancelMetadataEditing, message: viewModel.managementMessage)
         }
-        .sheet(item: $viewModel.trashPlan) { plan in
+        .sheet(item: Binding(
+            get: { viewModel.trashPlan },
+            set: { if $0 == nil { viewModel.cancelTrash() } }
+        )) { plan in
             LibraryTrashConfirmation(plan: plan, confirm: {
                 Task { await viewModel.confirmTrash() }
-            }, cancel: { viewModel.trashPlan = nil }, message: viewModel.managementMessage)
+            }, cancel: viewModel.cancelTrash, message: viewModel.managementMessage)
         }
         .alert("Library", isPresented: Binding(
             get: { viewModel.managementMessage != nil && viewModel.metadataItem == nil && viewModel.trashPlan == nil },

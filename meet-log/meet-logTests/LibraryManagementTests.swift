@@ -5,6 +5,62 @@ import Testing
 
 @MainActor
 struct LibraryManagementTests {
+    @Test func successfulMetadataRetryClearsPreviousError() async throws {
+        let f = try ManagementFixture()
+        defer { f.remove() }
+        try f.write("meeting_mix.m4a")
+        let model = try await f.loadedModel()
+        model.beginMetadataEditing()
+        let item = try #require(model.metadataItem)
+        let activity = LibraryActivity.begin(item.mixdownURL)
+        defer { LibraryActivity.end(activity) }
+        await model.saveMetadata(name: "retry", tags: ["updated"])
+        #expect(model.managementMessage != nil)
+        #expect(model.metadataItem != nil)
+        LibraryActivity.end(activity)
+        await model.saveMetadata(name: "retry", tags: ["updated"])
+        #expect(model.metadataItem == nil)
+        #expect(model.managementMessage == nil)
+        #expect(try await f.item().title == "retry")
+    }
+
+    @Test(arguments: [true, false])
+    func cancellingFailedManagementClearsInlineError(editMetadata: Bool) async throws {
+        let f = try ManagementFixture()
+        defer { f.remove() }
+        try f.write("meeting_mix.m4a")
+        let model = try await f.loadedModel()
+        if editMetadata { model.beginMetadataEditing() }
+        if !editMetadata { model.prepareTrash(.all) }
+        let item = try #require(model.selectedItem)
+        let activity = LibraryActivity.begin(item.mixdownURL)
+        defer { LibraryActivity.end(activity) }
+        if editMetadata { await model.saveMetadata(name: "blocked", tags: []) }
+        if !editMetadata { await model.confirmTrash() }
+        #expect(model.managementMessage != nil)
+        if editMetadata { model.cancelMetadataEditing() }
+        if !editMetadata { model.cancelTrash() }
+        #expect(model.managementMessage == nil)
+        #expect(model.metadataItem == nil)
+        #expect(model.trashPlan == nil)
+        #expect(f.exists("meeting_mix.m4a"))
+    }
+
+    @Test func successfulTrashRetainsResultAfterDismissalNotification() async throws {
+        let f = try ManagementFixture()
+        defer { f.remove() }
+        try f.write("meeting_mix.m4a")
+        let model = try await f.loadedModel()
+        model.prepareTrash(.all)
+        #expect(model.trashPlan != nil)
+        await model.confirmTrash()
+        #expect(model.trashPlan == nil)
+        #expect(!f.exists("meeting_mix.m4a"))
+        let result = try #require(model.managementMessage)
+        model.cancelTrash()
+        #expect(model.managementMessage == result)
+    }
+
     @Test func namesAndTagsRoundTripWithoutRenamingMediaOrSidecars() async throws {
         let f = try ManagementFixture()
         defer { f.remove() }
@@ -214,6 +270,20 @@ private struct ManagementFixture {
         trash = root.appendingPathComponent("trash")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: trash, withIntermediateDirectories: true)
+    }
+    func loadedModel() async throws -> LibraryViewModel {
+        let model = LibraryViewModel(
+            store: store, transcriptionService: TranscriptionServiceFactory.makeDefault(),
+            summaryService: UnavailableSummaryService(.foundationModelsUnavailable("test")),
+            summaryStore: MeetingSummarySidecarStore(), trashService: service
+        )
+        await model.load()
+        let deadline = ContinuousClock.now + .seconds(2)
+        while model.isSummaryBusy, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try #require(!model.isSummaryBusy)
+        return model
     }
     func url(_ name: String) -> URL { directory.appendingPathComponent(name) }
     func write(_ name: String, text: String = "content") throws { try Data(text.utf8).write(to: url(name)) }
