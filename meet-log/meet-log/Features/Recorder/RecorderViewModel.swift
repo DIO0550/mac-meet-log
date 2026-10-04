@@ -40,6 +40,7 @@ final class RecorderViewModel: ObservableObject {
     private var commandTask: Task<Void, Never>?
     private var microphoneSwitchTask: Task<Void, Never>?
     private var didStartCapture = false
+    private var didFinishCapture = false
     private var healthMonitor = RecordingHealthMonitor()
     private var healthTask: Task<Void, Never>?
     private var testStopTask: Task<Void, Never>?
@@ -398,6 +399,7 @@ final class RecorderViewModel: ObservableObject {
                 clearTransientPresentation()
                 try await dismissCompletedSessionIfNeeded()
                 completion = nil
+                didFinishCapture = false
                 let bytes = try recorder.prepareStorage(isTest)
                 let status = RecordingHealthMonitor.storageStatus(bytes: bytes, screenEnabled: !isTest && sources.screenCaptureEnabled)
                 guard status != .critical else {
@@ -472,6 +474,8 @@ final class RecorderViewModel: ObservableObject {
             defer { isStopping = false }
             do {
                 let result = try await (preserveSpace ? recorder.stopPreservingTracks() : recorder.stop())
+                // The operation result is authoritative even if stream notifications are still queued.
+                didFinishCapture = true
                 apply(state: .complete(result))
                 didStartCapture = false
                 return true
@@ -499,6 +503,7 @@ final class RecorderViewModel: ObservableObject {
         if let pendingStop {
             return await pendingStop.value
         }
+        if didFinishCapture { return true }
         guard didStartCapture || isRecording || isPaused else {
             // There is no owned operation to await; never exit while capture may still be active.
             return !isPreparing && !isFinalizing
@@ -796,6 +801,16 @@ final class RecorderViewModel: ObservableObject {
             presentNonFatal(error: error, title: "Recovery checkpoint could not be saved",
                             message: "Recording continues, but the saved elapsed time may be stale. \(error.localizedDescription)")
         case let .stateChanged(newState):
+            // Stop is disabled during startup, so a completion here belongs to the previous session.
+            if isStarting, case .complete = newState { return }
+            if didFinishCapture {
+                switch newState {
+                case .preparing, .recording, .paused, .finalizing:
+                    return
+                default:
+                    break
+                }
+            }
             apply(state: newState)
         case let .level(snapshot):
             apply(level: snapshot)
@@ -849,6 +864,7 @@ final class RecorderViewModel: ObservableObject {
             stopHealthMonitoring()
             stopElapsedTimer()
         case let .complete(result):
+            didFinishCapture = true
             didStartCapture = false
             stopHealthMonitoring()
             stopElapsedTimer()

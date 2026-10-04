@@ -169,6 +169,36 @@ struct MenuBarRecordingTests {
         #expect(harness.model.completion != nil)
     }
 
+    @Test func delayedStateNotificationsDoNotUndoCompletionOrFinishANewSession() async throws {
+        let harness = MenuBarRecorderHarness()
+        defer { harness.events.finish() }
+        harness.model.start()
+        try await waitUntil { harness.model.isRecording && !harness.model.isStarting }
+        harness.model.stop()
+        try await waitUntil { harness.model.completion != nil && !harness.model.isStopping }
+        harness.events.yield(.stateChanged(.finalizing))
+        harness.events.yield(.stateChanged(.recording(startedAt: .now)))
+        harness.events.yield(.level(AudioLevelSnapshot(track: .systemAudio, peak: 0.25, rms: 0.1)))
+        try await waitUntil { harness.model.level.systemAudio == 0.25 }
+        #expect(harness.model.state == .complete(harness.result))
+        #expect(harness.model.menuBarStatus.text == "Stopped")
+        #expect(await harness.model.prepareForTermination())
+        let (gate, release) = AsyncStream<Void>.makeStream()
+        defer { release.finish() }
+        harness.beforeStart = { for await _ in gate { return } }
+        harness.model.start()
+        try await waitUntil { harness.starts == 2 }
+        harness.events.yield(.stateChanged(.complete(harness.result)))
+        harness.events.yield(.level(AudioLevelSnapshot(track: .systemAudio, peak: 0.5, rms: 0.1)))
+        try await waitUntil { harness.model.level.systemAudio == 0.5 }
+        #expect(harness.model.completion == nil)
+        release.yield(())
+        try await waitUntil { harness.model.isRecording && !harness.model.isStarting }
+        #expect(harness.model.menuBarStatus.text == "Recording")
+        #expect(await harness.model.prepareForTermination())
+        #expect(harness.stops == 2)
+    }
+
     @Test func inputTestCannotPauseOrCreateMeetingNotesAndCanQuit() async throws {
         let harness = MenuBarRecorderHarness()
         defer { harness.events.finish() }
@@ -217,6 +247,7 @@ struct MenuBarRecordingTests {
 @MainActor
 private final class MenuBarRecorderHarness {
     let events: AsyncStream<RecorderEvent>.Continuation
+    let result: RecordingResult
     private(set) var model: RecorderViewModel!
     var starts = 0
     var pauses = 0
@@ -229,7 +260,7 @@ private final class MenuBarRecorderHarness {
     init(directory: URL? = nil, now: @escaping () -> Date = Date.init) {
         let (stream, continuation) = AsyncStream<RecorderEvent>.makeStream()
         events = continuation
-        let result = RecordingResult(duration: .seconds(15), systemAudioURL: nil, microphoneURL: nil,
+        result = RecordingResult(duration: .seconds(15), systemAudioURL: nil, microphoneURL: nil,
                                      mixdown: .mixed((directory ?? FileManager.default.temporaryDirectory)
                                         .appendingPathComponent("meeting_mix.m4a")), displayFileName: "meeting_mix.m4a")
         let client = RecorderClient(events: stream, microphoneDevices: { [] }, start: { [weak self] _, _, _ in
@@ -251,8 +282,8 @@ private final class MenuBarRecorderHarness {
             self.events.yield(.stateChanged(.finalizing))
             await self.beforeStop?()
             if let stopError = self.stopError { throw stopError }
-            self.events.yield(.stateChanged(.complete(result)))
-            return result
+            self.events.yield(.stateChanged(.complete(self.result)))
+            return self.result
         }, dismiss: {}, switchMicrophoneInput: { _ in }, sessionDirectory: { directory })
         model = RecorderViewModel(recorder: client, now: now)
         model.setMicrophoneEnabled(false)
