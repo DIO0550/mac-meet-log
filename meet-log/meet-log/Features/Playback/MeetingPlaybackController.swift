@@ -8,7 +8,7 @@ final class MeetingPlaybackController: ObservableObject {
 
     @Published private(set) var position = 0.0
     @Published private(set) var duration = 0.0
-    @Published private(set) var isPlaying = false
+    @Published private(set) var isPlaying = false { didSet { updateActivity() } }
     @Published private(set) var isLoading = false
     @Published private(set) var hasVideo = false
     @Published private(set) var availability = ""
@@ -17,6 +17,13 @@ final class MeetingPlaybackController: ObservableObject {
     let player = AVPlayer()
 
     private let loader: any PlaybackMediaLoading
+    private var sourceURL: URL?
+    private var playingActivity: UUID?
+    private func updateActivity() {
+        LibraryActivity.end(playingActivity)
+        playingActivity = nil
+        if isPlaying, let sourceURL { playingActivity = LibraryActivity.begin(sourceURL) }
+    }
     private var media: PlaybackMedia?
     private var generation = UUID()
     private var seekGeneration = UUID()
@@ -37,6 +44,9 @@ final class MeetingPlaybackController: ObservableObject {
 
     func load(_ source: PlaybackSource) async {
         stop()
+        sourceURL = source.recordingURL
+        let loadingActivity = source.recordingURL.map { LibraryActivity.begin($0) }
+        defer { LibraryActivity.end(loadingActivity) }
         let request = generation
         isLoading = true
         do {

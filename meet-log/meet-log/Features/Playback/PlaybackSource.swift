@@ -5,6 +5,12 @@ struct PlaybackSource: Hashable {
     let audioURLs: [URL]
     let videoURL: URL?
 
+    var recordingURL: URL? {
+        guard let url = audioURLs.first ?? videoURL else { return nil }
+        guard let stem = RecordingLibraryItem.stem(fromFileName: url.lastPathComponent) else { return url }
+        return url.deletingLastPathComponent().appendingPathComponent("\(stem)_mix.m4a")
+    }
+
     init(audioURLs: [URL], videoURL: URL? = nil) {
         self.audioURLs = audioURLs
         self.videoURL = videoURL

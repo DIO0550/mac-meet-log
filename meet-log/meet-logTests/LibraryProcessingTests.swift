@@ -4,6 +4,26 @@ import Testing
 
 @MainActor
 struct LibraryProcessingTests {
+    @Test func cancelledProcessingKeepsManagementBlockedUntilWorkerExits() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try await fixture.seed()
+        await fixture.services.configure(paused: true)
+        let model = fixture.model()
+        await model.load()
+        try await settled(model)
+        model.runProcessing(.summary)
+        try await waitFor { await fixture.services.waiting }
+        #expect(LibraryActivity.isBusy(fixture.item.mixdownURL))
+        model.cancelProcessing()
+        model.prepareTrash(.all)
+        #expect(model.trashPlan == nil)
+        #expect(model.managementMessage != nil)
+        #expect(LibraryActivity.isBusy(fixture.item.mixdownURL))
+        await fixture.services.release()
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(fixture.item.mixdownURL) }
+    }
+
     @Test func savedEditsReachReloadSearchExportAndSummaryOnly() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

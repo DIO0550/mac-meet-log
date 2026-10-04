@@ -79,6 +79,19 @@ struct OutputDirectoryRecordingLibraryStore: RecordingLibraryStoring {
             }
         let fileNames = Set(fileURLs.map(\.lastPathComponent))
         var stems = Set(fileNames.compactMap(RecordingLibraryItem.stem(fromFileName:)))
+        let report = try? RecordingRecoveryStore.loadReport(in: directoryURL)
+        let recoveredSidecars = report.map { ["recovered-\($0.sessionID.uuidString)_summary.md", "recovered-\($0.sessionID.uuidString)_transcript.md"] } ?? []
+        for suffix in ["_library.json", "_summary.md", "_transcript.md", "_notes.json"] {
+            stems.formUnion(fileNames.filter { $0.hasSuffix(suffix) && !recoveredSidecars.contains($0) }
+                .map { String($0.dropLast(suffix.count)) })
+        }
+        if let report,
+           let journal = try? RecordingJournal.load(in: directoryURL.deletingLastPathComponent()),
+           report.sessionID == journal.id,
+           fileNames.contains("recovered-\(report.sessionID.uuidString)_summary.md")
+            || fileNames.contains("recovered-\(report.sessionID.uuidString)_transcript.md") {
+            stems.insert(journal.stem)
+        }
         // A recovery can contain only notes when every media container was interrupted.
         if fileNames.contains(RecordingRecoveryStore.reportFileName) {
             stems.formUnion(fileNames.filter { $0.hasSuffix("_notes.json") }.map { String($0.dropLast(11)) })
