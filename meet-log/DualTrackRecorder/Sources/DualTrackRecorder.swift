@@ -7,6 +7,14 @@ public actor DualTrackRecorder {
     private let eventStream: AsyncStream<RecorderEvent>
     private let eventContinuation: AsyncStream<RecorderEvent>.Continuation
     private var activeCaptureSession: ActiveCaptureSession?
+    private var journal: RecordingJournal?
+    private var journalDirectory: URL?
+    private var checkpointTask: Task<Void, Never>?
+    private var sessionLease: RecordingSessionLease?
+
+    public var currentSessionDirectory: URL? { journalDirectory }
+
+    deinit { checkpointTask?.cancel() }
 
     public nonisolated var events: AsyncStream<RecorderEvent> {
         eventStream
@@ -34,6 +42,10 @@ public actor DualTrackRecorder {
     ) async throws {
         let states = try await session.start(sources: sources)
         publish(states)
+        checkpointTask?.cancel()
+        journal = nil
+        journalDirectory = nil
+        sessionLease = nil
 
         do {
             activeCaptureSession = try await makeCaptureSession(
@@ -45,9 +57,16 @@ public actor DualTrackRecorder {
             if let screenCaptureError = try await activeCaptureSession?.start() {
                 eventContinuation.yield(.screenCaptureUnavailable(screenCaptureError))
             }
+            checkpointTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                    await self?.checkpoint()
+                }
+            }
         } catch {
             activeCaptureSession?.stopImmediately()
             activeCaptureSession = nil
+            sessionLease = nil
             let recorderError = normalize(error, fallback: "Could not start recording.")
             publish(await session.fail(with: recorderError))
             throw recorderError
@@ -117,18 +136,22 @@ public actor DualTrackRecorder {
     public func pause() async throws {
         let state = try await session.pause()
         activeCaptureSession?.pause()
+        await checkpoint(phase: .paused)
         publish(state)
     }
 
     public func resume() async throws {
         let state = try await session.resume()
         activeCaptureSession?.resume()
+        await checkpoint(phase: .recording)
         publish(state)
     }
 
     public func stop(createMixdown: Bool = true) async throws -> RecordingResult {
         let finalizing = try await session.startFinalizing()
         publish(finalizing)
+        checkpointTask?.cancel()
+        await checkpoint(phase: .finalizing)
 
         guard let activeCaptureSession else {
             let error = RecorderError.invalidState(operation: "stop capture", state: "idle")
@@ -167,6 +190,7 @@ public actor DualTrackRecorder {
                 displayFileName: activeCaptureSession.outputFileSet.displayFileName
             )
             self.activeCaptureSession = nil
+            await checkpoint(phase: .finalized)
             let complete = try await session.complete(with: result)
             publish(complete)
             return result
@@ -187,6 +211,12 @@ public actor DualTrackRecorder {
         let outputDirectory = dependencies.outputDirectoryFactory(outputDirectoryURL)
         let startDate = await session.startDate ?? Date()
         let outputFileSet = try outputDirectory.fileSet(for: startDate)
+        sessionLease = try RecordingSessionLease(directory: outputFileSet.sessionDirectoryURL)
+        let stem = outputFileSet.mixdownURL.deletingPathExtension().lastPathComponent.dropLast(4)
+        let newJournal = RecordingJournal(startedAt: startDate, stem: String(stem), sources: sources)
+        try newJournal.save(in: outputFileSet.sessionDirectoryURL)
+        journal = newJournal
+        journalDirectory = outputFileSet.sessionDirectoryURL
         var processors: [RecordingTrack: TrackProcessor] = [:]
         var systemAudioCaptures: [any AudioCapture] = []
         var microphoneCapture: (any AudioCapture)?
@@ -238,6 +268,23 @@ public actor DualTrackRecorder {
         )
     }
 
+    private func checkpoint(phase: RecordingJournal.Phase? = nil) async {
+        guard let id = journal?.id else { return }
+        let elapsed = await session.elapsed
+        guard var value = journal, value.id == id, let directory = journalDirectory else { return }
+        value.elapsed = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+        value.updatedAt = Date()
+        if let phase { value.phase = phase }
+        journal = value
+        do {
+            try value.save(in: directory)
+        } catch {
+            // Stop retrying every second; pause/stop still try to save the latest state.
+            checkpointTask?.cancel()
+            eventContinuation.yield(.recoveryCheckpointFailed(.outputFailed(error.localizedDescription)))
+        }
+    }
+
     private func normalize(_ error: Error, fallback: String) -> RecorderError {
         if let recorderError = error as? RecorderError {
             return recorderError
@@ -259,6 +306,7 @@ public actor DualTrackRecorder {
 
     public func dismiss() async throws {
         let state = try await session.dismiss()
+        sessionLease = nil
         publish(state)
     }
 
@@ -348,7 +396,6 @@ private final class ActiveCaptureSession {
         do {
             return (try await screenCapture.stop(), nil)
         } catch {
-            try? FileManager.default.removeItem(at: outputFileSet.screenCaptureURL)
             return (nil, Self.screenCaptureError(error, fallback: "Could not save screen capture."))
         }
     }

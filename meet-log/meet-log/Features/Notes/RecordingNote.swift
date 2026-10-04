@@ -1,6 +1,6 @@
 import Foundation
 
-struct RecordingNote: Codable, Equatable, Identifiable, Sendable {
+nonisolated struct RecordingNote: Codable, Equatable, Identifiable, Sendable {
     let id: UUID
     let elapsed: TimeInterval
     var text: String
@@ -13,7 +13,7 @@ struct RecordingNote: Codable, Equatable, Identifiable, Sendable {
         self.createdAt = createdAt
     }
 
-    var timestamp: String {
+    @MainActor var timestamp: String {
         guard elapsed.isFinite, elapsed >= 0, elapsed < Double(Int64.max) else {
             return "--:--"
         }

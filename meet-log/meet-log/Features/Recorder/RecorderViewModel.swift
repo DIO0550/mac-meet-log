@@ -45,6 +45,7 @@ final class RecorderViewModel: ObservableObject {
     private var pendingPreferences: AppPreferences?
     private var hasLoadedMicrophoneDevices = false
     private let recorder: RecorderClient
+    private var activeNotesURL: URL?
     private var eventTask: Task<Void, Never>?
     private var microphoneDeviceTask: Task<Void, Never>?
     private var timerTask: Task<Void, Never>?
@@ -388,6 +389,7 @@ final class RecorderViewModel: ObservableObject {
                 if status == .low { notifyHealth(.lowStorage) }
                 try await prepareMicrophonePermissionIfNeeded()
                 notes = []
+                activeNotesURL = nil
                 elapsed = .zero
                 recordingBaselineElapsed = .zero
                 recordingBaselineDate = nil
@@ -397,6 +399,11 @@ final class RecorderViewModel: ObservableObject {
                     screenCaptureEnabled: !isTest && sources.screenCaptureEnabled
                 )
                 try await recorder.start(captureSources, selectedMicrophoneSelection, selectedScreenCaptureTarget)
+                if !isTest, let directory = await recorder.sessionDirectory() {
+                    let journal = try RecordingJournal.load(in: directory)
+                    activeNotesURL = directory.appendingPathComponent("\(journal.stem)_notes.json")
+                    saveNotes()
+                }
                 healthMonitor.resume(sources: captureSources, at: uptime())
                 if sources.systemAudioEnabled { systemAudioPermissionState = .granted }
                 if isTest {
@@ -532,7 +539,7 @@ final class RecorderViewModel: ObservableObject {
 
     @discardableResult
     func addNote(_ text: String) -> Bool {
-        guard !isTestRecording, isRecording || isPaused else {
+        guard !isTestRecording, !isStarting, isRecording || isPaused else {
             return false
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -544,17 +551,23 @@ final class RecorderViewModel: ObservableObject {
         let seconds = Double(components.seconds) + Double(components.attoseconds) / 1e18
         notes.append(RecordingNote(elapsed: max(0, seconds), text: trimmed, createdAt: now()))
         hasUnsavedNotes = true
+        saveNotes()
         return true
     }
 
     func saveNotes() {
-        guard hasUnsavedNotes, let trackURL = completion?.revealURL,
-              let url = RecordingNoteStore().url(for: trackURL) else {
-            return
-        }
         do {
-            try RecordingNoteStore().save(notes, to: url)
-            hasUnsavedNotes = false
+            let completedNotesURL = completion?.revealURL.flatMap { RecordingNoteStore().url(for: $0) }
+            let url = activeNotesURL ?? completedNotesURL
+            if hasUnsavedNotes {
+                guard let url else { return }
+                try RecordingNoteStore().save(notes, to: url)
+                hasUnsavedNotes = false
+            }
+            if completion != nil, let directory = url?.deletingLastPathComponent(),
+               FileManager.default.fileExists(atPath: directory.appendingPathComponent(RecordingJournal.fileName).path) {
+                try RecordingJournal.markComplete(in: directory)
+            }
         } catch {
             presentNonFatal(error: error, title: "Notes could not be saved", message: error.localizedDescription)
         }
@@ -717,6 +730,9 @@ final class RecorderViewModel: ObservableObject {
 
     private func handle(event: RecorderEvent) {
         switch event {
+        case let .recoveryCheckpointFailed(error):
+            presentNonFatal(error: error, title: "Recovery checkpoint could not be saved",
+                            message: "Recording continues, but the saved elapsed time may be stale. \(error.localizedDescription)")
         case let .stateChanged(newState):
             apply(state: newState)
         case let .level(snapshot):
@@ -942,6 +958,7 @@ final class RecorderViewModel: ObservableObject {
 }
 
 struct RecorderClient {
+    let sessionDirectory: () async -> URL?
     let events: AsyncStream<RecorderEvent>
     let microphoneDevices: () async throws -> [AudioInputDevice]
     let microphoneDeviceChanges: () async -> AsyncStream<[AudioInputDevice]>
@@ -963,6 +980,7 @@ struct RecorderClient {
     }
 
     init(recorder: DualTrackRecorder, outputDirectory: (() throws -> URL)? = nil) {
+        sessionDirectory = { await recorder.currentSessionDirectory }
         let destination = RecordingDestination(resolve: {
             try outputDirectory?() ?? RecordingStorage.defaultOutputDirectoryURL
         })
@@ -1028,8 +1046,10 @@ struct RecorderClient {
         requestScreenCapturePermission: @escaping () async throws -> Void = {},
         prepareStorage: @escaping (Bool) throws -> Int64? = { _ in Int64.max },
         availableStorage: @escaping () throws -> Int64? = { Int64.max },
-        stopPreservingTracks: (() async throws -> RecordingResult)? = nil
+        stopPreservingTracks: (() async throws -> RecordingResult)? = nil,
+        sessionDirectory: @escaping () async -> URL? = { nil }
     ) {
+        self.sessionDirectory = sessionDirectory
         self.events = events
         self.microphoneDevices = microphoneDevices
         self.microphoneDeviceChanges = microphoneDeviceChanges

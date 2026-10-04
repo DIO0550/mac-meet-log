@@ -25,8 +25,9 @@ struct LiveRecordingNotesView: View {
                     Button("Add", action: commit)
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+                .disabled(viewModel.isStarting)
             }
-            if viewModel.hasUnsavedNotes && viewModel.completion != nil {
+            if viewModel.hasUnsavedNotes {
                 Text("Notes are not saved yet. Retry before leaving this recording.")
                     .foregroundStyle(.red)
                 Button("Retry Saving Notes", action: viewModel.saveNotes)

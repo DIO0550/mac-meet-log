@@ -213,6 +213,8 @@ final class ScreenCaptureRecorder: NSObject, ScreenCapturing, SCStreamOutput, SC
         streamConfiguration.capturesAudio = false
 
         let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        // Keep completed fragments readable if finishWriting is never reached.
+        writer.movieFragmentInterval = CMTime(seconds: 10, preferredTimescale: 600)
         let input = AVAssetWriterInput(
             mediaType: .video,
             outputSettings: [
@@ -248,7 +250,6 @@ final class ScreenCaptureRecorder: NSObject, ScreenCapturing, SCStreamOutput, SC
             self.stream = nil
             self.writer = nil
             self.writerInput = nil
-            try? FileManager.default.removeItem(at: outputURL)
             throw RecorderError.captureFailed("Could not start screen capture. \(error.localizedDescription)")
         }
     }
@@ -290,7 +291,6 @@ final class ScreenCaptureRecorder: NSObject, ScreenCapturing, SCStreamOutput, SC
             throw RecorderError.outputFailed("Could not save a screen frame. \(appendError.localizedDescription)")
         }
         guard finalState.2 else {
-            try? FileManager.default.removeItem(at: outputURL)
             throw RecorderError.outputFailed("No screen frames were captured.")
         }
 

@@ -38,7 +38,7 @@ chronological order in the recording result and Library details, where they can
 be added, edited, or deleted. For saved recordings, enter the position in seconds.
 
 Notes are saved atomically as `<recording>_notes.json` beside the audio tracks
-when recording completes, including when mixdown fails. A missing sidecar means
+after each live note is added and retried when recording completes, including when mixdown fails. A missing sidecar means
 there are no notes; an unreadable sidecar is reported and preserved. If saving
 fails, keep the app open and use **Retry Saving Notes** before leaving the session.
 
@@ -192,3 +192,65 @@ Mac/macOS/device versions and results for USB/Bluetooth input tests, live unplug
 and re-selection, 30-second silence, 5-second buffer loss, pause/resume, warning
 cooldown, and audio/screen recordings on a test volume reaching both capacity
 thresholds. Verify the saved tracks/video and notes can still be reopened.
+
+### Interrupted recording recovery
+
+A new recording writes `session.json` before capture begins. The active elapsed
+clock is checkpointed atomically every second and on pause/resume/finalization.
+Live notes are atomically saved after each addition. A separate completion marker
+is written only after normal finalization and pending notes have been saved.
+Input tests stay in their existing temporary directory and are not offered for
+recovery.
+
+Each audio source also writes independently finalized AAC backups approximately
+every **5 seconds** (plus one capture buffer) to `<track>.segments`. Only closed,
+renamed segments are used; `.partial.m4a` files remain untouched. The main M4A may
+be unreadable before close, so a successful normal recording does not establish
+crash recoverability. Backups roughly double AAC encoding work/audio storage
+(about 58 MB/hour per source in addition to the original, plus container overhead).
+They are retained with the recording. Screen MP4 uses 10-second movie fragments,
+following Apple's [movieFragmentInterval documentation](https://developer.apple.com/documentation/avfoundation/avassetwriter/moviefragmentinterval).
+The interval is a target, not a guaranteed bound on data loss.
+
+At launch, interrupted sessions in the default, current and previously bookmarked
+recording destinations are offered for recovery. Unavailable destinations report
+an error without blocking scans of accessible folders. The recorder's recovery
+button reopens the launch results. Restore the original destination in Settings
+if a drive was disconnected. Recovered recordings from earlier destinations also
+appear in Library while those destinations remain accessible.
+
+The recovery screen lists checkpoint age/state, readable media ranges, missing
+segments and saved note count. Recovery exports into a hidden staging folder,
+then atomically publishes a single `recovered` folder and report. Only published
+results enter Library; repeated recovery returns that result without overwriting
+later edits. Originals, unreadable media, corrupt notes and unfinished backup
+files are never deleted. Gaps between audio backup segments retain their timeline
+positions. Mixdown failures still register the recovered source tracks for a
+Library retry; notes-only recovery is supported. The recovery report remains
+visible in Library. If nothing is readable, no result is published.
+
+The last checkpoint can lag capture time, and uncommitted audio/video tails,
+unsaved notes and capture-time dropouts cannot be reconstructed. Media inspection
+checks container metadata; export failures are reported separately, with audio
+falling back to its closed segments. There is no guarantee of recovery after
+power loss, disk failure, or exhausted storage.
+
+`RecordingRecoveryTests`, `RecordingJournalTests` and `RecordingNotesTests` cover
+state restoration, live note persistence, corrupt/missing media, partial tails,
+timeline gaps, source preservation, notes-only publication and idempotent retries.
+**Physical-device force-quit validation is pending** (development environment:
+Linux, no macOS/Xcode or capture devices). Before closing #46, record Mac/macOS,
+input devices, elapsed time and results for the following matrix:
+
+- Force quit during the first 5 seconds, after multiple intervals, while paused,
+  after resuming, and during normal finalization/mixdown.
+- Test system-only, microphone-only, both sources, and audio with screen MP4.
+  Add notes before/after each pause; compare recovered timestamps to audible and
+  visible markers. Check the last readable M4A segment and MP4 fragment.
+- Repeat recovery and force quit during recovery; confirm one Library item and
+  unchanged original hashes. Edit recovered notes, then retry and verify edits.
+- Disconnect/reconnect a custom destination, change destinations during recording,
+  and simulate disk-full on a disposable test volume. Confirm errors, preserved
+  originals and available recovery candidates after restarting.
+
+No physical force-quit results are claimed by the synthetic tests.

@@ -48,6 +48,7 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
     }
 
     var sourceSummary: String {
+        if !hasTranscribableAudio, screenCaptureURL == nil { return "Notes only" }
         if systemAudioURL == nil, microphoneURL == nil, screenCaptureURL != nil {
             if fileExistence.mixdownExists {
                 return "Mixdown + screen"
@@ -195,7 +196,8 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
         let microphoneExists = microphoneURL.map { fileManager.fileExists(atPath: $0.path) } ?? false
         let screenCaptureExists = screenCaptureURL.map { fileManager.fileExists(atPath: $0.path) } ?? false
 
-        guard mixdownExists || systemAudioExists || microphoneExists || screenCaptureExists else {
+        let hasRecoveredNotes = directoryContents.contains("recovery-report.json") && directoryContents.contains("\(stem)_notes.json")
+        guard mixdownExists || systemAudioExists || microphoneExists || screenCaptureExists || hasRecoveredNotes else {
             return nil
         }
 
@@ -213,7 +215,7 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
             ?? .now
 
         self.init(
-            id: stem,
+            id: (try? RecordingRecoveryStore.loadReport(in: directoryURL)).map { "recovered-\($0.sessionID.uuidString)" } ?? stem,
             title: Self.title(from: stem),
             createdAt: createdAt,
             duration: durationURL.flatMap { durationProvider.duration(for: $0) },

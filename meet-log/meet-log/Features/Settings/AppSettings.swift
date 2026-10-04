@@ -15,6 +15,7 @@ final class AppSettings: ObservableObject {
     static let shared = AppSettings()
     static let preferencesKey = "preferences.v1"
     static let directoryBookmarkKey = "recordings.directory.bookmark"
+    static let recoveryBookmarksKey = "recordings.recovery.bookmarks"
     static let summaryTemplatesKey = "summary.templates.v1"
 
     @Published var preferences: AppPreferences {
@@ -57,6 +58,7 @@ final class AppSettings: ObservableObject {
             let url = try URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI],
                               relativeTo: nil, bookmarkDataIsStale: &stale)
             retainAccess(to: url)
+            rememberRecoveryBookmark(bookmark)
             if stale {
                 let refreshed = try makeBookmark(for: url)
                 defaults.set(refreshed, forKey: Self.directoryBookmarkKey)
@@ -74,6 +76,8 @@ final class AppSettings: ObservableObject {
             throw RecorderError.outputFailed("保存先にはフォルダを選択してください。")
         }
         let bookmark = try makeBookmark(for: url)
+        if let previous = defaults.data(forKey: Self.directoryBookmarkKey) { rememberRecoveryBookmark(previous) }
+        rememberRecoveryBookmark(bookmark)
         defaults.set(bookmark, forKey: Self.directoryBookmarkKey)
         if directoryAccess[url] == nil {
             directoryAccess[url] = access
@@ -82,8 +86,36 @@ final class AppSettings: ObservableObject {
     }
 
     func resetOutputDirectory() {
+        if let previous = defaults.data(forKey: Self.directoryBookmarkKey) { rememberRecoveryBookmark(previous) }
         defaults.removeObject(forKey: Self.directoryBookmarkKey)
         directoryRevision += 1
+    }
+
+    /// Retain access to earlier destinations after a crash or an in-flight Settings change.
+    func recoveryDirectories() -> (directories: [URL], warnings: [String]) {
+        var directories: Set<URL> = [RecordingStorage.defaultOutputDirectoryURL]
+        var warnings: [String] = []
+        do { directories.insert(try resolveOutputDirectory()) }
+        catch { warnings.append(error.localizedDescription) }
+        for bookmark in defaults.array(forKey: Self.recoveryBookmarksKey) as? [Data] ?? [] {
+            do {
+                var stale = false
+                let url = try URL(resolvingBookmarkData: bookmark, options: [.withSecurityScope, .withoutUI],
+                              relativeTo: nil, bookmarkDataIsStale: &stale)
+                retainAccess(to: url)
+                directories.insert(url)
+            } catch {
+                warnings.append("以前の保存先を確認できません。ドライブを接続して設定で選び直してください。\n\(error.localizedDescription)")
+            }
+        }
+        return (Array(Set(directories.map { $0.resolvingSymlinksInPath().standardizedFileURL })), warnings)
+    }
+
+    private func rememberRecoveryBookmark(_ data: Data) {
+        var bookmarks = defaults.array(forKey: Self.recoveryBookmarksKey) as? [Data] ?? []
+        guard !bookmarks.contains(data) else { return }
+        bookmarks.append(data)
+        defaults.set(bookmarks, forKey: Self.recoveryBookmarksKey)
     }
 
     func defaultMicrophoneID(in devices: [AudioInputDevice]) -> String? {
@@ -176,6 +208,12 @@ final class SettingsRecordingLibraryStore: RecordingLibraryStoring {
 
     func recordings() async throws -> [RecordingLibraryItem] {
         let url = try settings.resolveOutputDirectory()
-        return try await OutputDirectoryRecordingLibraryStore(outputDirectoryURL: url).recordings()
+        var items = try await OutputDirectoryRecordingLibraryStore(outputDirectoryURL: url).recordings()
+        let currentPath = url.resolvingSymlinksInPath().standardizedFileURL.path
+        for previous in settings.recoveryDirectories().directories where previous.path != currentPath {
+            let oldItems = (try? await OutputDirectoryRecordingLibraryStore(outputDirectoryURL: previous).recordings()) ?? []
+            items += oldItems.filter { (try? RecordingRecoveryStore.loadReport(in: $0.sessionDirectoryURL)) != nil }
+        }
+        return items.sorted { $0.createdAt > $1.createdAt }
     }
 }

@@ -5,6 +5,36 @@ import Testing
 
 @MainActor
 struct RecordingNotesTests {
+    @Test func liveNoteIsPersistedBeforeStopAndCompletionMarksJournal() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let journal = RecordingJournal(startedAt: .now, stem: "meeting",
+                                       sources: RecordingSources(systemAudioEnabled: true, microphoneEnabled: false))
+        try journal.save(in: directory)
+        let (events, continuation) = AsyncStream<RecorderEvent>.makeStream()
+        defer { continuation.finish() }
+        let track = directory.appendingPathComponent("meeting_system.m4a")
+        let result = RecordingResult(duration: .seconds(1), systemAudioURL: track, microphoneURL: nil,
+                                     mixdown: .failed(.mixdownFailed("test")), displayFileName: "meeting_mix.m4a")
+        let client = RecorderClient(events: events, microphoneDevices: { [] }, start: { _, _, _ in
+            continuation.yield(.stateChanged(.recording(startedAt: .now)))
+        }, pause: {}, resume: {}, stop: { result }, dismiss: {}, switchMicrophoneInput: { _ in },
+                                    sessionDirectory: { directory })
+        let model = RecorderViewModel(recorder: client)
+        model.setMicrophoneEnabled(false)
+        model.start()
+        try await waitUntil { model.isRecording && !model.isStarting }
+        #expect(model.addNote("すぐに保存"))
+        let url = directory.appendingPathComponent("meeting_notes.json")
+        #expect(try RecordingNoteStore().load(from: url) == model.notes)
+        #expect(!model.hasUnsavedNotes)
+        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent(RecordingJournal.completionFileName).path))
+        model.stop()
+        try await waitUntil { model.completion != nil && !model.isStopping }
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent(RecordingJournal.completionFileName).path))
+    }
+
     @Test(arguments: [
         (65.0, "01:05"),
         (3_599.0, "59:59"),
