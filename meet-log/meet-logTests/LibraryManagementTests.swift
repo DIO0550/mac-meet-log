@@ -161,7 +161,7 @@ struct LibraryManagementTests {
         let videoPlan = try f.service.plan(for: item, scope: .screen)
         #expect(videoPlan.files.count == 2)
         let allPlan = try f.service.plan(for: item, scope: .all)
-        #expect(allPlan.files.contains { $0.url.path == segment.path })
+        #expect(allPlan.files.contains { $0.url.resolvingSymlinksInPath().standardizedFileURL == segment.resolvingSymlinksInPath().standardizedFileURL })
         #expect(allPlan.files.count == 5)
         // Keep actual moves in separate destinations when the original and recovery share a filename.
         let service = LibraryTrashService(trash: { url in
