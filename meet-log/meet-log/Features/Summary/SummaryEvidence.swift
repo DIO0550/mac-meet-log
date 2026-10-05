@@ -28,8 +28,8 @@ nonisolated struct SummaryEvidence: Equatable, Identifiable, Sendable {
     }
 
     var promptLabel: String {
-        let speakerLabel = speaker.map { " \($0.displayName)" } ?? ""
-        return "[\(id) \(source.label) \(timeRangeText)\(speakerLabel)] "
+        let speakerLabel = speaker.map { "\($0.displayName): " } ?? ""
+        return "[\(id) \(source.label) \(timeRangeText)] \(speakerLabel)"
     }
 }
 
