@@ -189,14 +189,17 @@ struct RecorderControls: View {
             HStack(spacing: 12) {
                 if !viewModel.isTestRecording {
                     SecondaryRecorderButton(title: "Pause", systemImage: "pause.fill", action: viewModel.pause)
+                        .disabled(!viewModel.canPause)
                 }
                 StopRecorderButton(action: viewModel.stop)
+                    .disabled(!viewModel.canStop)
             }
-            .disabled(viewModel.isStarting || viewModel.isStopping)
         } else if viewModel.isPaused {
             HStack(spacing: 12) {
                 SecondaryRecorderButton(title: "Resume", systemImage: "play.fill", action: viewModel.resume)
+                    .disabled(!viewModel.canResume)
                 StopRecorderButton(action: viewModel.stop)
+                    .disabled(!viewModel.canStop)
             }
         } else {
             Button(action: viewModel.start) {

@@ -33,6 +33,14 @@ final class RecorderViewModel: ObservableObject {
     @Published private(set) var isTestRecording = false
     @Published private(set) var isStarting = false
     @Published private(set) var isStopping = false
+    @Published private(set) var isChangingRecordingState = false
+    @Published private(set) var isTerminating = false
+    private var startTask: Task<Void, Never>?
+    private var stopTask: Task<Bool, Never>?
+    private var commandTask: Task<Void, Never>?
+    private var microphoneSwitchTask: Task<Void, Never>?
+    private var didStartCapture = false
+    private var didFinishCapture = false
     private var healthMonitor = RecordingHealthMonitor()
     private var healthTask: Task<Void, Never>?
     private var testStopTask: Task<Void, Never>?
@@ -117,15 +125,28 @@ final class RecorderViewModel: ObservableObject {
     }
 
     var canStart: Bool {
-        !isStarting && !isStopping && !hasUnsavedNotes && sources.hasAnyEnabledSource && !isPreparing && !isRecording && !isPaused && !isFinalizing
+        !isTerminating && !isStarting && !isStopping && !isChangingRecordingState && !hasUnsavedNotes && sources.hasAnyEnabledSource && !isPreparing && !isRecording && !isPaused && !isFinalizing
     }
 
     var canEditSources: Bool {
-        !isStarting && !isStopping && !isPreparing && !isRecording && !isPaused && !isFinalizing
+        !isTerminating && !isStarting && !isStopping && !isPreparing && !isRecording && !isPaused && !isFinalizing
+    }
+
+    private var canControlRecording: Bool {
+        !isTerminating && !isStarting && !isStopping && !isChangingRecordingState
+    }
+
+    var canPause: Bool { canControlRecording && isRecording && !isTestRecording }
+    var canResume: Bool { canControlRecording && isPaused }
+    var canStop: Bool { canControlRecording && (isRecording || isPaused) }
+    var canAddNote: Bool { canControlRecording && !isTestRecording && (isRecording || isPaused) }
+
+    var needsTerminationConfirmation: Bool {
+        didStartCapture || isStarting || isStopping || isPreparing || isRecording || isPaused || isFinalizing || hasUnsavedNotes
     }
 
     var canSelectMicrophoneInput: Bool {
-        !isStarting && !isStopping && sources.microphoneEnabled && !isPreparing && !isPaused && !isFinalizing && !isSwitchingMicrophoneInput
+        !isTerminating && !isStarting && !isStopping && sources.microphoneEnabled && !isPreparing && !isPaused && !isFinalizing && !isSwitchingMicrophoneInput
     }
 
     var canRequestSystemAudioPermission: Bool {
@@ -372,12 +393,13 @@ final class RecorderViewModel: ObservableObject {
         testCompletion = nil
         healthWarnings = []
         healthMonitor.begin(sources: sources, at: uptime())
-        Task {
+        startTask = Task {
             defer { isStarting = false }
             do {
                 clearTransientPresentation()
                 try await dismissCompletedSessionIfNeeded()
                 completion = nil
+                didFinishCapture = false
                 let bytes = try recorder.prepareStorage(isTest)
                 let status = RecordingHealthMonitor.storageStatus(bytes: bytes, screenEnabled: !isTest && sources.screenCaptureEnabled)
                 guard status != .critical else {
@@ -399,6 +421,7 @@ final class RecorderViewModel: ObservableObject {
                     screenCaptureEnabled: !isTest && sources.screenCaptureEnabled
                 )
                 try await recorder.start(captureSources, selectedMicrophoneSelection, selectedScreenCaptureTarget)
+                didStartCapture = true
                 if !isTest, let directory = await recorder.sessionDirectory() {
                     let journal = try RecordingJournal.load(in: directory)
                     activeNotesURL = directory.appendingPathComponent("\(journal.stem)_notes.json")
@@ -423,14 +446,14 @@ final class RecorderViewModel: ObservableObject {
     }
 
     func pause() {
-        guard !isTestRecording, !isStarting, !isStopping, isRecording else { return }
+        guard canPause else { return }
         runCommand {
             try await self.recorder.pause()
         }
     }
 
     func resume() {
-        guard !isStarting, !isStopping, isPaused else { return }
+        guard canResume else { return }
         runCommand {
             try await self.recorder.resume()
         }
@@ -439,19 +462,54 @@ final class RecorderViewModel: ObservableObject {
     func stop() { stop(preserveSpace: false) }
 
     private func stop(preserveSpace: Bool) {
-        guard (isRecording || isPaused), !isStarting, !isStopping else { return }
+        guard canStop else { return }
+        beginStop(preserveSpace: preserveSpace)
+    }
+
+    private func beginStop(preserveSpace: Bool) {
         isStopping = true
         testStopTask?.cancel()
         stopHealthMonitoring()
-        Task {
+        stopTask = Task {
             defer { isStopping = false }
             do {
                 let result = try await (preserveSpace ? recorder.stopPreservingTracks() : recorder.stop())
-                receiveCompletion(result)
+                // The operation result is authoritative even if stream notifications are still queued.
+                didFinishCapture = true
+                apply(state: .complete(result))
+                didStartCapture = false
+                return true
             } catch {
                 present(error: error)
+                return false
             }
         }
+    }
+
+    /// Wait for capture startup and any already-running save before replying to macOS's quit request.
+    func prepareForTermination() async -> Bool {
+        guard !isTerminating else { return false }
+        isTerminating = true
+        defer { isTerminating = false }
+        let pendingStop = isStopping ? stopTask : nil
+        await startTask?.value
+        await commandTask?.value
+        await microphoneSwitchTask?.value
+        guard await finishCaptureForTermination(pendingStop: pendingStop) else { return false }
+        return persistNotes()
+    }
+
+    private func finishCaptureForTermination(pendingStop: Task<Bool, Never>?) async -> Bool {
+        if let pendingStop {
+            return await pendingStop.value
+        }
+        if didFinishCapture { return true }
+        guard didStartCapture || isRecording || isPaused else {
+            // There is no owned operation to await; never exit while capture may still be active.
+            return !isPreparing && !isFinalizing
+        }
+        beginStop(preserveSpace: false)
+        return await stopTask?.value == true
     }
 
     private func receiveCompletion(_ result: RecordingResult) {
@@ -515,6 +573,7 @@ final class RecorderViewModel: ObservableObject {
     }
 
     func dismiss() {
+        guard !isTerminating else { return }
         guard !hasUnsavedNotes else {
             saveNotes()
             return
@@ -539,7 +598,7 @@ final class RecorderViewModel: ObservableObject {
 
     @discardableResult
     func addNote(_ text: String) -> Bool {
-        guard !isTestRecording, !isStarting, isRecording || isPaused else {
+        guard canAddNote else {
             return false
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -556,11 +615,15 @@ final class RecorderViewModel: ObservableObject {
     }
 
     func saveNotes() {
+        _ = persistNotes()
+    }
+
+    private func persistNotes() -> Bool {
         do {
             let completedNotesURL = completion?.revealURL.flatMap { RecordingNoteStore().url(for: $0) }
             let url = activeNotesURL ?? completedNotesURL
             if hasUnsavedNotes {
-                guard let url else { return }
+                guard let url else { return false }
                 try RecordingNoteStore().save(notes, to: url)
                 hasUnsavedNotes = false
             }
@@ -568,8 +631,10 @@ final class RecorderViewModel: ObservableObject {
                FileManager.default.fileExists(atPath: directory.appendingPathComponent(RecordingJournal.fileName).path) {
                 try RecordingJournal.markComplete(in: directory)
             }
+            return !hasUnsavedNotes
         } catch {
             presentNonFatal(error: error, title: "Notes could not be saved", message: error.localizedDescription)
+            return false
         }
     }
 
@@ -685,7 +750,7 @@ final class RecorderViewModel: ObservableObject {
         selectedMicrophoneDeviceID = deviceID
         isSwitchingMicrophoneInput = true
 
-        Task {
+        microphoneSwitchTask = Task {
             do {
                 clearTransientPresentation()
                 try await recorder.switchMicrophoneInput(selectedMicrophoneSelection)
@@ -718,12 +783,14 @@ final class RecorderViewModel: ObservableObject {
     }
 
     private func runCommand(_ command: @escaping @MainActor () async throws -> Void) {
-        Task {
+        isChangingRecordingState = true
+        commandTask = Task {
+            defer { isChangingRecordingState = false }
             do {
                 clearTransientPresentation()
                 try await command()
             } catch {
-                present(error: error)
+                presentNonFatal(error: error)
             }
         }
     }
@@ -734,6 +801,16 @@ final class RecorderViewModel: ObservableObject {
             presentNonFatal(error: error, title: "Recovery checkpoint could not be saved",
                             message: "Recording continues, but the saved elapsed time may be stale. \(error.localizedDescription)")
         case let .stateChanged(newState):
+            // Stop is disabled during startup, so a completion here belongs to the previous session.
+            if isStarting, case .complete = newState { return }
+            if didFinishCapture {
+                switch newState {
+                case .preparing, .recording, .paused, .finalizing:
+                    return
+                default:
+                    break
+                }
+            }
             apply(state: newState)
         case let .level(snapshot):
             apply(level: snapshot)
@@ -761,6 +838,7 @@ final class RecorderViewModel: ObservableObject {
     }
 
     private func apply(state newState: RecorderState) {
+        guard state != newState else { return }
         let previousState = state
         state = newState
 
@@ -786,10 +864,13 @@ final class RecorderViewModel: ObservableObject {
             stopHealthMonitoring()
             stopElapsedTimer()
         case let .complete(result):
+            didFinishCapture = true
+            didStartCapture = false
             stopHealthMonitoring()
             stopElapsedTimer()
             receiveCompletion(result)
         case let .failed(error):
+            didStartCapture = false
             testStopTask?.cancel()
             stopHealthMonitoring()
             present(error: error)

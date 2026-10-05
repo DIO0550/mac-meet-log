@@ -7,7 +7,7 @@ struct AppRootView: View {
         case audioProcessing
     }
 
-    @StateObject private var recorderViewModel = RecorderViewModel()
+    @ObservedObject var recorderViewModel: RecorderViewModel
     @State private var destination: Destination = .recorder
     @ObservedObject private var settings = AppSettings.shared
     @State private var interrupted: [InterruptedRecording] = []
