@@ -126,9 +126,9 @@ enum MeetingSummaryMarkdownCodec {
             )
         }
 
-        // Edited fields may contain Markdown headings, colons, parentheses or newlines.
-        // Keep their exact values and stable IDs in a versioned, authoritative payload.
-        if summary.editedAt != nil, let data = try? JSONEncoder().encode(summary) {
+        // Edited fields and generated evidence need exact values and stable IDs.
+        // Keep them in the versioned payload already used for edited summaries.
+        if summary.editedAt != nil || summary.hasEvidence, let data = try? JSONEncoder().encode(summary) {
             sections.insert("<!-- summary-edit-format: 1 -->", at: 1)
             sections.append("<!-- summary-data: \(data.base64EncodedString()) -->")
         }
@@ -421,3 +421,4 @@ private enum EditedSidecarPayload {
         return try JSONDecoder().decode(type, from: data)
     }
 }
+

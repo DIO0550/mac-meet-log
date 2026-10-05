@@ -78,8 +78,9 @@ private struct FoundationModelsSummaryGenerator: SummaryGenerating {
         Schema:
         {
           "summary": "string",
-          "topics": [{"title": "string", "detail": "string"}],
-          "actionItems": [{"title": "string", "owner": "string", "dueDateText": "string"}]
+          "evidenceIDs": ["ID from input"],
+          "topics": [{"title": "string", "detail": "string", "evidenceIDs": ["ID from input"]}],
+          "actionItems": [{"title": "string", "owner": "string", "dueDateText": "string", "evidenceIDs": ["ID from input"]}]
         }
         """
     }
@@ -109,6 +110,7 @@ nonisolated private struct GeneratedMeetingSummary: Decodable {
     let summary: String
     let topics: [GeneratedMeetingTopic]
     let actionItems: [GeneratedMeetingActionItem]
+    let evidenceIDs: [String]?
 
     func meetingSummary(sourceURL: URL) throws -> MeetingSummary {
         let trimmedSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -120,7 +122,8 @@ nonisolated private struct GeneratedMeetingSummary: Decodable {
             summary: trimmedSummary,
             topics: topics.map(\.meetingTopic),
             actionItems: actionItems.map(\.meetingActionItem),
-            transcriptSourceURL: sourceURL
+            transcriptSourceURL: sourceURL,
+            evidenceIDs: evidenceIDs
         )
     }
 }
@@ -128,11 +131,13 @@ nonisolated private struct GeneratedMeetingSummary: Decodable {
 nonisolated private struct GeneratedMeetingTopic: Decodable {
     let title: String
     let detail: String
+    let evidenceIDs: [String]?
 
     var meetingTopic: MeetingTopic {
         MeetingTopic(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-            detail: detail.trimmedNilIfEmpty
+            detail: detail.trimmedNilIfEmpty,
+            evidenceIDs: evidenceIDs
         )
     }
 }
@@ -141,12 +146,14 @@ nonisolated private struct GeneratedMeetingActionItem: Decodable {
     let title: String
     let owner: String
     let dueDateText: String
+    let evidenceIDs: [String]?
 
     var meetingActionItem: MeetingActionItem {
         MeetingActionItem(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             owner: owner.trimmedNilIfEmpty,
-            dueDateText: dueDateText.trimmedNilIfEmpty
+            dueDateText: dueDateText.trimmedNilIfEmpty,
+            evidenceIDs: evidenceIDs
         )
     }
 }
@@ -173,3 +180,4 @@ private extension String {
     }
 }
 #endif
+

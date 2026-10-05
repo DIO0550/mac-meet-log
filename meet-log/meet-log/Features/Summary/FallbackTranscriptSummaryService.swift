@@ -64,12 +64,18 @@ struct ExtractiveTranscriptSummaryService: TranscriptSummaryService {
             characterLimit: summaryCharacterLimit
         )
 
+        let catalog = SummaryEvidenceCatalog(transcript)
         return .summarized(
             MeetingSummary(
                 summary: summaryText,
-                topics: Self.topics(from: sentences, fallback: summaryText, limit: topicLimit),
+                topics: Self.topics(from: sentences, fallback: summaryText, limit: topicLimit).map { topic in
+                    let ids = catalog.entries.filter { $0.source == .audio && $0.text.contains(topic.title) }.map(\.id)
+                    return MeetingTopic(id: topic.id, title: topic.title, detail: topic.detail, evidenceIDs: ids)
+                },
                 actionItems: [],
-                transcriptSourceURL: transcript.sourceURL
+                transcriptSourceURL: transcript.sourceURL,
+                evidenceIDs: catalog.entries.filter { $0.source == .audio && summaryText.contains($0.text) }.map(\.id),
+                evidenceInputFingerprint: catalog.fingerprint
             )
         )
     }
@@ -126,3 +132,4 @@ private extension String {
         return String(self[..<endIndex]) + "..."
     }
 }
+

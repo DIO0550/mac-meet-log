@@ -17,7 +17,7 @@ struct SummaryPromptBuilder: Sendable {
     }
 
     nonisolated func makePrompt(for transcript: TranscriptResult) -> Result<SummaryPrompt, SummaryError> {
-        let trimmedText = transcript.summaryInputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedText = SummaryEvidenceCatalog.modelInput(transcript).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedText.isEmpty else {
             return .failure(.emptyTranscript)
         }
@@ -34,7 +34,7 @@ struct SummaryPromptBuilder: Sendable {
 
         return .success(
             SummaryPrompt(
-                instructions: template.instructions + "\n" + speakerInstruction + screenInstruction,
+                instructions: template.instructions + "\n" + speakerInstruction + screenInstruction + "\n" + Self.evidenceInstructions,
                 prompt: Self.prompt(
                     transcriptText: trimmedText,
                     localeIdentifier: transcript.localeIdentifier,
@@ -43,6 +43,13 @@ struct SummaryPromptBuilder: Sendable {
             )
         )
     }
+
+    nonisolated static let evidenceInstructions = """
+    要約・トピック・TODOごとに根拠の evidenceIDs を返してください。
+    入力に示された audio- / screen- のIDだけを使い、時刻やIDを作らないでください。
+    根拠を特定できない場合は空配列にしてください。複数の根拠を保持してください。
+    screen- は画面の補助資料であり、会議での発言・合意・担当者の確定を意味しません。
+    """
 
     nonisolated static let screenInstructions = """
     画面 OCR は音声とは別の補助資料です。表示文字を発言・決定・担当者の根拠として扱わず、
@@ -68,3 +75,4 @@ struct SummaryPromptBuilder: Sendable {
         """
     }
 }
+

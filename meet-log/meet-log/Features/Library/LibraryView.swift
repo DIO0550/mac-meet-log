@@ -638,7 +638,7 @@ private struct LibraryDetailPane: View {
                 if let warning = viewModel.summaryInputWarning {
                     SummaryMessageRow(systemImage: "exclamationmark.triangle", message: warning)
                 }
-                MeetingSummaryView(summary: summary)
+                MeetingSummaryView(summary: summary, transcript: viewModel.transcript, seek: viewModel.playback.jump)
             }
 
             switch viewModel.summaryState {
@@ -729,6 +729,8 @@ private struct LibraryDetailPane: View {
 
 private struct MeetingSummaryView: View {
     let summary: MeetingSummary
+    let transcript: TranscriptResult?
+    let seek: (Double) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -740,6 +742,7 @@ private struct MeetingSummaryView: View {
             Text(summary.summary)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
+            evidenceView(summary.evidenceIDs)
 
             if !summary.topics.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
@@ -756,6 +759,7 @@ private struct MeetingSummaryView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
+                            evidenceView(topic.evidenceIDs)
                         }
                     }
                 }
@@ -787,12 +791,18 @@ private struct MeetingSummaryView: View {
                                 }
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                                evidenceView(actionItem.evidenceIDs)
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    private func evidenceView(_ ids: [String]?) -> some View {
+        SummaryEvidenceView(ids: ids, fingerprint: summary.evidenceInputFingerprint,
+                            transcript: transcript, seek: seek)
     }
 }
 
@@ -900,3 +910,4 @@ private struct LibraryStatusView: View {
         .padding(32)
     }
 }
+

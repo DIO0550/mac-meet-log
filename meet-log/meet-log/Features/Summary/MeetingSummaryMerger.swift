@@ -9,17 +9,25 @@ nonisolated enum MeetingSummaryMerger {
             if let index = topicIndexes[key] {
                 let previous = topics[index]
                 let details = unique([previous.detail, topic.detail].compactMap { $0 })
-                topics[index] = MeetingTopic(id: previous.id, title: previous.title, detail: details.joined(separator: "\n"))
+                topics[index] = MeetingTopic(id: previous.id, title: previous.title, detail: details.joined(separator: "\n"),
+                                            evidenceIDs: evidenceUnion(previous.evidenceIDs, topic.evidenceIDs))
                 continue
             }
             topicIndexes[key] = topics.count
             topics.append(topic)
         }
 
-        var actionKeys = Set<[String]>()
-        let actions = summary.actionItems.filter { item in
-            // Different owners or deadlines can describe distinct tasks; do not collapse them.
-            actionKeys.insert([normalized(item.title), normalized(item.owner ?? ""), normalized(item.dueDateText ?? "")]).inserted
+        var actions: [MeetingActionItem] = []
+        var actionIndexes: [[String]: Int] = [:]
+        for item in summary.actionItems {
+            // Different owners or deadlines can describe distinct tasks.
+            let key = [normalized(item.title), normalized(item.owner ?? ""), normalized(item.dueDateText ?? "")]
+            if let index = actionIndexes[key] {
+                actions[index].evidenceIDs = evidenceUnion(actions[index].evidenceIDs, item.evidenceIDs)
+                continue
+            }
+            actionIndexes[key] = actions.count
+            actions.append(item)
         }
         return MeetingSummary(
             summary: summary.summary,
@@ -28,19 +36,37 @@ nonisolated enum MeetingSummaryMerger {
             transcriptSourceURL: summary.transcriptSourceURL,
             createdAt: summary.createdAt,
             templateID: summary.templateID,
-            templateName: summary.templateName
+            templateName: summary.templateName,
+            inputFingerprint: summary.inputFingerprint, editedAt: summary.editedAt,
+            evidenceIDs: summary.evidenceIDs, evidenceInputFingerprint: summary.evidenceInputFingerprint
         )
     }
 
     static func integrationText(_ summaries: [MeetingSummary]) -> String {
         summaries.enumerated().map { index, summary in
             let summary = removingDuplicates(summary)
-            let topics = summary.topics.map { "- \($0.title): \($0.detail ?? "")" }.joined(separator: "\n")
+            let topics = summary.topics.map { "- \($0.title): \($0.detail ?? "")" + evidenceText($0.evidenceIDs) }.joined(separator: "\n")
             let actions = summary.actionItems.map {
-                "- \($0.title) / 担当: \($0.owner ?? "不明") / 期限: \($0.dueDateText ?? "不明")"
+                "- \($0.title) / 担当: \($0.owner ?? "不明") / 期限: \($0.dueDateText ?? "不明")" + evidenceText($0.evidenceIDs)
             }.joined(separator: "\n")
-            return "中間要約 \(index + 1)\n\(summary.summary)\nトピック:\n\(topics)\nアクション:\n\(actions)"
+            return "中間要約 \(index + 1)\n\(summary.summary)\(evidenceText(summary.evidenceIDs))\nトピック:\n\(topics)\nアクション:\n\(actions)"
         }.joined(separator: "\n\n")
+    }
+
+    static func evidenceUnion(_ first: [String]?, _ second: [String]?) -> [String]? {
+        guard first != nil || second != nil else {
+            return nil
+        }
+        var seen = Set<String>()
+        return ((first ?? []) + (second ?? [])).filter { seen.insert($0).inserted }
+    }
+
+    private static func evidenceText(_ ids: [String]?) -> String {
+        let confirmed = (ids ?? []).filter { $0 != "unconfirmed" }
+        guard !confirmed.isEmpty else {
+            return ""
+        }
+        return " [根拠: \(confirmed.joined(separator: ", "))]"
     }
 
     private static func normalized(_ text: String) -> String {
@@ -54,3 +80,4 @@ nonisolated enum MeetingSummaryMerger {
         return values.filter { seen.insert(normalized($0)).inserted }
     }
 }
+
