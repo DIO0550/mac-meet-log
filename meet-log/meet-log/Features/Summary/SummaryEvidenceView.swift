@@ -3,11 +3,10 @@ import SwiftUI
 struct SummaryEvidenceView: View {
     let ids: [String]?
     let fingerprint: String?
-    let transcript: TranscriptResult?
+    let catalog: SummaryEvidenceCatalog?
     let seek: (Double) -> Void
 
     var body: some View {
-        let catalog = transcript.map(SummaryEvidenceCatalog.init)
         let evidence = catalog?.resolve(ids, fingerprint: fingerprint) ?? []
         let requested = Set(ids ?? [])
         let missing = requested.subtracting(evidence.map(\.id))

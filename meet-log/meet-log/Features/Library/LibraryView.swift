@@ -733,6 +733,7 @@ private struct MeetingSummaryView: View {
     let seek: (Double) -> Void
 
     var body: some View {
+        let catalog = transcript.map(SummaryEvidenceCatalog.init)
         VStack(alignment: .leading, spacing: 16) {
             if let templateName = summary.templateName {
                 Label(templateName, systemImage: "doc.text")
@@ -742,7 +743,7 @@ private struct MeetingSummaryView: View {
             Text(summary.summary)
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
-            evidenceView(summary.evidenceIDs)
+            evidenceView(summary.evidenceIDs, catalog: catalog)
 
             if !summary.topics.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
@@ -759,7 +760,7 @@ private struct MeetingSummaryView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
-                            evidenceView(topic.evidenceIDs)
+                            evidenceView(topic.evidenceIDs, catalog: catalog)
                         }
                     }
                 }
@@ -791,7 +792,7 @@ private struct MeetingSummaryView: View {
                                 }
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                                evidenceView(actionItem.evidenceIDs)
+                                evidenceView(actionItem.evidenceIDs, catalog: catalog)
                             }
                         }
                     }
@@ -800,9 +801,9 @@ private struct MeetingSummaryView: View {
         }
     }
 
-    private func evidenceView(_ ids: [String]?) -> some View {
+    private func evidenceView(_ ids: [String]?, catalog: SummaryEvidenceCatalog?) -> some View {
         SummaryEvidenceView(ids: ids, fingerprint: summary.evidenceInputFingerprint,
-                            transcript: transcript, seek: seek)
+                            catalog: catalog, seek: seek)
     }
 }
 
