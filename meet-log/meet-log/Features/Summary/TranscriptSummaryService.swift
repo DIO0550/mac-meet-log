@@ -146,7 +146,7 @@ struct PromptedTranscriptSummaryService: TranscriptSummaryService {
             return .unavailable(unavailableReason)
         }
 
-        if transcript.summaryInputText.trimmingCharacters(in: .whitespacesAndNewlines).count > promptBuilder.characterLimit {
+        if SummaryEvidenceCatalog.modelInput(transcript).trimmingCharacters(in: .whitespacesAndNewlines).count > promptBuilder.characterLimit {
             do {
                 let summary = try await ChunkedSummaryPipeline(promptBuilder: promptBuilder, generator: generator)
                     .summarize(transcript, progress: progress)
@@ -162,7 +162,9 @@ struct PromptedTranscriptSummaryService: TranscriptSummaryService {
         case let .success(prompt):
             do {
                 let summary = try await generator.generate(prompt: prompt, transcript: transcript)
-                return .summarized(summary.recording(template: template))
+                let catalog = SummaryEvidenceCatalog(transcript)
+                return .summarized(summary.restrictingEvidence(to: catalog.ids, fingerprint: catalog.fingerprint)
+                    .recording(template: template))
             } catch let error as SummaryError {
                 return .failed(error)
             } catch {
@@ -173,3 +175,4 @@ struct PromptedTranscriptSummaryService: TranscriptSummaryService {
         }
     }
 }
+

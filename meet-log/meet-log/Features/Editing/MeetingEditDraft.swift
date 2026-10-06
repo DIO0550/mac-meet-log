@@ -69,10 +69,27 @@ nonisolated struct MeetingEditDraft: Equatable, Identifiable, Sendable {
     func editedSummary(at date: Date = .now) -> MeetingSummary? {
         guard case .summary(let value) = original else { return nil }
         return MeetingSummary(
-            summary: text, topics: topics, actionItems: actionItems,
+            summary: text,
+            topics: topics.map { topic in
+                guard let original = value.topics.first(where: { $0.id == topic.id }),
+                      original.title == topic.title, original.detail == topic.detail else {
+                    return MeetingTopic(id: topic.id, title: topic.title, detail: topic.detail)
+                }
+                return topic
+            },
+            actionItems: actionItems.map { item in
+                guard let original = value.actionItems.first(where: { $0.id == item.id }),
+                      original.title == item.title, original.owner == item.owner,
+                      original.dueDateText == item.dueDateText else {
+                    return MeetingActionItem(id: item.id, title: item.title, owner: item.owner, dueDateText: item.dueDateText)
+                }
+                return item
+            },
             transcriptSourceURL: value.transcriptSourceURL, createdAt: value.createdAt,
             templateID: value.templateID, templateName: value.templateName,
-            inputFingerprint: value.inputFingerprint, editedAt: hasChanges ? date : value.editedAt
+            inputFingerprint: value.inputFingerprint, editedAt: hasChanges ? date : value.editedAt,
+            evidenceIDs: text == value.summary ? value.evidenceIDs : nil,
+            evidenceInputFingerprint: value.evidenceInputFingerprint
         )
     }
 
@@ -80,3 +97,4 @@ nonisolated struct MeetingEditDraft: Equatable, Identifiable, Sendable {
         value.segments.isEmpty ? text != value.text : segmentTexts != value.segments.map(\.text)
     }
 }
+

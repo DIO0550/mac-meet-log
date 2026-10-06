@@ -105,7 +105,10 @@ struct ChunkedSummaryTests {
         }
         #expect(total > 1)
         #expect(inputs.allSatisfy { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
-        #expect(inputs.prefix(total).map(\.text).joined() == source.screenText)
+        let screenEvidence = try #require(SummaryEvidenceCatalog(source).entries.first)
+        let chunkInputs = inputs.prefix(total)
+        #expect(chunkInputs.allSatisfy { $0.text.hasPrefix(screenEvidence.promptLabel) })
+        #expect(chunkInputs.map { String($0.text.dropFirst(screenEvidence.promptLabel.count)) }.joined() == source.screenSegments[0].text)
         #expect(prompts.prefix(total).allSatisfy { $0.instructions.contains("今回の入力全体は画面 OCR") })
         #expect(events.contains(.chunk(completed: total, total: total)))
         guard case let .integration(round, completed, remaining) = try #require(events.last) else {
@@ -240,3 +243,4 @@ private actor SummaryProgressRecorder {
 private struct AvailableSummaryChecker: SummaryAvailabilityChecking {
     nonisolated func currentAvailability() -> SummaryAvailability { .available }
 }
+

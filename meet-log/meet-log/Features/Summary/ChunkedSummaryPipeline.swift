@@ -8,19 +8,14 @@ nonisolated struct ChunkedSummaryPipeline: Sendable {
         _ transcript: TranscriptResult,
         progress: SummaryProgressHandler
     ) async throws -> MeetingSummary {
-        let chunker = TranscriptChunker(characterLimit: promptBuilder.characterLimit)
-        let audioChunks = try chunker.split(transcript.text)
-            .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .map { (text: $0, screen: false) }
-        let screenChunks = try chunker.split(transcript.screenText)
-            .filter { !$0.isEmpty }.map { (text: $0, screen: true) }
-        let chunks = audioChunks + screenChunks
+        let catalog = SummaryEvidenceCatalog(transcript)
+        let chunks = try SummaryEvidenceChunker(characterLimit: promptBuilder.characterLimit).split(transcript)
         var summaries: [MeetingSummary] = []
         await progress(.chunk(completed: 0, total: chunks.count))
         for (index, chunk) in chunks.enumerated() {
             try Task.checkCancellation()
             do {
-                summaries.append(try await generate(chunk.text, source: transcript, integrating: false, screen: chunk.screen))
+                summaries.append(try await generate(chunk.text, source: transcript, integrating: false, screen: chunk.screen, allowedIDs: chunk.evidenceIDs))
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -43,7 +38,12 @@ nonisolated struct ChunkedSummaryPipeline: Sendable {
             for (index, group) in groups.enumerated() {
                 try Task.checkCancellation()
                 do {
-                    merged.append(try await generate(MeetingSummaryMerger.integrationText(group), source: transcript, integrating: true))
+                    let allowed = Set(group.flatMap { summary in
+                        (summary.evidenceIDs ?? []) + summary.topics.flatMap { $0.evidenceIDs ?? [] }
+                            + summary.actionItems.flatMap { $0.evidenceIDs ?? [] }
+                    }).intersection(catalog.ids)
+                    merged.append(try await generate(MeetingSummaryMerger.integrationText(group), source: transcript,
+                                                     integrating: true, allowedIDs: allowed))
                 } catch is CancellationError {
                     throw CancellationError()
                 } catch {
@@ -53,13 +53,17 @@ nonisolated struct ChunkedSummaryPipeline: Sendable {
             }
             if let result = merged.first, merged.count == 1 {
                 return MeetingSummaryMerger.removingDuplicates(result)
+                    .restrictingEvidence(to: catalog.ids, fingerprint: catalog.fingerprint)
             }
             summaries = merged
             round += 1
         }
     }
 
-    private func generate(_ text: String, source: TranscriptResult, integrating: Bool, screen: Bool = false) async throws -> MeetingSummary {
+    private func generate(
+        _ text: String, source: TranscriptResult, integrating: Bool,
+        screen: Bool = false, allowedIDs: Set<String>
+    ) async throws -> MeetingSummary {
         let input = TranscriptResult(text: text, localeIdentifier: source.localeIdentifier, sourceURL: source.sourceURL)
         let base = try promptBuilder.makePrompt(for: input).get()
         var instructions = base.instructions
@@ -73,14 +77,14 @@ nonisolated struct ChunkedSummaryPipeline: Sendable {
             instructions += "\n今回の入力全体は画面 OCR の補助資料です。音声の発言ではありません。全ての情報を画面由来と明記し、発言・決定として扱わないでください。"
         }
         if integrating {
-            instructions += "\n入力は同じ会議の時系列の中間要約です。全てを横断して統合し、同じトピックや同一担当・期限の同じタスクを一つにまとめてください。異なる詳細・決定・担当者・期限を捨てず、原文にない事実を追加しないでください。"
+            instructions += "\n入力は同じ会議の時系列の中間要約です。全てを横断して統合し、同じトピックや同一担当・期限の同じタスクを一つにまとめてください。異なる詳細・決定・担当者・期限を捨てず、原文にない事実を追加しないでください。各項目の根拠IDを保持・統合し、根拠IDのない項目を確認済みにしないでください。"
         }
         let result = try await generator.generate(
             prompt: SummaryPrompt(instructions: instructions, prompt: base.prompt),
             transcript: input
         )
         try Task.checkCancellation()
-        return MeetingSummaryMerger.removingDuplicates(result)
+        return MeetingSummaryMerger.removingDuplicates(result.restrictingEvidence(to: allowedIDs))
     }
 
     private func integrationGroups(_ summaries: [MeetingSummary]) throws -> [[MeetingSummary]] {
@@ -104,3 +108,4 @@ nonisolated struct ChunkedSummaryPipeline: Sendable {
         return groups
     }
 }
+
