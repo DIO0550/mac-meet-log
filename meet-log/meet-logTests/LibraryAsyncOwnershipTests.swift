@@ -207,7 +207,8 @@ struct LibraryAsyncOwnershipTests {
         #expect(try await fixture.storage.summary(for: fixture.a)?.summary == "generated A")
     }
 
-    @Test func lateOCRWarningDoesNotAppearInAnotherRecording() async throws {
+    @Test(arguments: [false, true])
+    func lateOCRWarningDoesNotAppearInAnotherRecording(refresh: Bool) async throws {
         let fixture = Fixture()
         await fixture.seed()
         let model = fixture.model()
@@ -218,6 +219,10 @@ struct LibraryAsyncOwnershipTests {
         try await waitFor { await gate.isWaiting }
         model.select(fixture.b)
         try await waitFor { @MainActor in !model.isSummaryBusy }
+        if refresh {
+            model.refresh()
+            try await waitFor { @MainActor in !model.isSummaryBusy }
+        }
         await gate.release()
         try await waitFor { @MainActor in !LibraryActivity.isBusy(fixture.a.mixdownURL) }
 
@@ -225,6 +230,33 @@ struct LibraryAsyncOwnershipTests {
         model.select(fixture.a)
         try await waitFor { @MainActor in !model.isSummaryBusy }
         #expect(model.transcript?.screenSegments == fixture.transcript(fixture.a).screenSegments)
+    }
+
+    @Test(arguments: [false, true])
+    func delayedOverwriteConfirmationCannotAttachToAnotherRecording(refresh: Bool) async throws {
+        let fixture = Fixture()
+        await fixture.seed()
+        let edited = TranscriptResult(text: "manually edited", localeIdentifier: "ja-JP",
+                                      sourceURL: fixture.a.mixdownURL, audioEditedAt: .now)
+        await fixture.storage.seed(edited, summary: fixture.summary(fixture.a), for: fixture.a)
+        let model = fixture.model()
+        await model.load()
+        let gate = SuspensionGate()
+        await fixture.storage.holdNextRead(summary: false, gate: gate, failing: false)
+        model.runProcessing(.all)
+        try await waitFor { await gate.isWaiting }
+        model.select(fixture.b)
+        try await waitFor { @MainActor in !model.isSummaryBusy }
+        if refresh {
+            model.refresh()
+            try await waitFor { @MainActor in !model.isSummaryBusy }
+        }
+        await gate.release()
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(fixture.a.mixdownURL) }
+
+        expectB(model, fixture: fixture)
+        #expect(await fixture.storage.savedSummaries.isEmpty)
+        #expect(try await fixture.storage.transcript(for: fixture.a) == edited)
     }
 
     private func expectB(_ model: LibraryViewModel, fixture: Fixture) {

@@ -393,7 +393,10 @@ struct LibraryProcessingTests {
         try await waitFor { @MainActor in !LibraryActivity.isBusy(fixture.item.mixdownURL) }
         #expect(try await fixture.storage.transcript(for: fixture.other) == nil)
         #expect(try await fixture.storage.summary(for: fixture.other) == nil)
-        #expect(try await fixture.storage.summary(for: fixture.item) == model.savedSummary)
+        let persistedSummary = try #require(try await fixture.storage.summary(for: fixture.item))
+        let displayedSummary = try #require(model.savedSummary)
+        #expect(persistedSummary.summary == displayedSummary.summary)
+        #expect(persistedSummary.inputFingerprint == displayedSummary.inputFingerprint)
         #expect(try await fixture.storage.transcript(for: fixture.item) == model.transcript)
         switch stage {
         case .transcription:
