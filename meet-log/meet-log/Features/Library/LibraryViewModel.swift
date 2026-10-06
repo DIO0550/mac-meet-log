@@ -44,6 +44,55 @@ final class LibraryViewModel: ObservableObject {
         let message: String
     }
 
+    // IDs can repeat in a different destination. Include the captured storage URL.
+    private struct RecordingKey: Hashable, Sendable {
+        let id: RecordingLibraryItem.ID
+        let mixdownURL: URL
+
+        init(_ item: RecordingLibraryItem) {
+            id = item.id
+            mixdownURL = item.mixdownURL
+        }
+    }
+
+    private struct Run: Equatable, Sendable {
+        let recording: RecordingKey
+        let id = UUID()
+    }
+
+    private struct RecordingResult {
+        let run: Run
+        var state: SummaryState = .idle
+        var summary: MeetingSummary?
+        var transcript: TranscriptResult?
+        var screenOCRWarning: String?
+        var confirmation: ProcessingConfirmation?
+    }
+
+    @Published private var recordingResults: [RecordingKey: RecordingResult] = [:]
+
+    private var selectedResult: RecordingResult? {
+        guard let selectedItem else {
+            return nil
+        }
+        return recordingResults[RecordingKey(selectedItem)]
+    }
+
+    private func updateSelectedResult(_ update: (inout RecordingResult) -> Void) {
+        guard let run = selectedResult?.run else {
+            return
+        }
+        updateResult(for: run, update)
+    }
+
+    private func updateResult(for run: Run, _ update: (inout RecordingResult) -> Void) {
+        guard var result = recordingResults[run.recording], result.run == run else {
+            return
+        }
+        update(&result)
+        recordingResults[run.recording] = result
+    }
+
     @Published private(set) var metadataItem: RecordingLibraryItem?
     @Published private(set) var trashPlan: LibraryTrashPlan?
     @Published var managementMessage: String?
@@ -121,7 +170,10 @@ final class LibraryViewModel: ObservableObject {
     @Published var editDraft: MeetingEditDraft?
     @Published private(set) var isSavingEdits = false
     @Published private(set) var editError: String?
-    @Published private(set) var processingConfirmation: ProcessingConfirmation?
+    private(set) var processingConfirmation: ProcessingConfirmation? {
+        get { selectedResult?.confirmation }
+        set { updateSelectedResult { $0.confirmation = newValue } }
+    }
     private var editingItem: RecordingLibraryItem?
 
     @Published private(set) var state: State = .loading
@@ -146,10 +198,27 @@ final class LibraryViewModel: ObservableObject {
         playbackStorage = controller
         return controller
     }
-    @Published private(set) var summaryState: SummaryState = .idle
-    @Published private(set) var savedSummary: MeetingSummary?
-    @Published private(set) var screenOCRWarning: String?
-    @Published private(set) var transcript: TranscriptResult?
+    private(set) var summaryState: SummaryState {
+        get {
+            if refreshRunID != nil {
+                return .loadingSaved
+            }
+            return selectedResult?.state ?? .idle
+        }
+        set { updateSelectedResult { $0.state = newValue } }
+    }
+    private(set) var savedSummary: MeetingSummary? {
+        get { selectedResult?.summary }
+        set { updateSelectedResult { $0.summary = newValue } }
+    }
+    private(set) var screenOCRWarning: String? {
+        get { selectedResult?.screenOCRWarning }
+        set { updateSelectedResult { $0.screenOCRWarning = newValue } }
+    }
+    private(set) var transcript: TranscriptResult? {
+        get { selectedResult?.transcript }
+        set { updateSelectedResult { $0.transcript = newValue } }
+    }
     @Published private(set) var remixState: RemixState = .idle
     @Published var selectedSummaryTemplateID = SummaryTemplate.builtIn.id
     @Published var searchQuery = "" {
@@ -172,9 +241,11 @@ final class LibraryViewModel: ObservableObject {
     private let mixdownService: RecordingLibraryMixdownServicing
     private let searchService: LibrarySearchService
     private var searchTask: Task<Void, Never>?
-    private var summaryLoadID = UUID()
-    private var processingTask: Task<Void, Never>?
-    private var processingRunID: UUID?
+    private var summaryLoadTask: Task<Void, Never>?
+    private var summaryLoadRun: Run?
+    private var processingTasks: [RecordingKey: (run: Run, task: Task<Void, Never>)] = [:]
+    private var refreshTask: Task<Void, Never>?
+    @Published private var refreshRunID: UUID?
 
     convenience init() {
         self.init(
@@ -274,11 +345,15 @@ final class LibraryViewModel: ObservableObject {
 
     func load() async {
         await refresh(shouldShowLoading: true)
+        await summaryLoadTask?.value
     }
 
     func refresh() {
-        Task {
-            await refresh(shouldShowLoading: false)
+        guard let request = beginRefresh(shouldShowLoading: false) else {
+            return
+        }
+        refreshTask = Task {
+            await performRefresh(request: request)
         }
     }
 
@@ -287,46 +362,57 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func loadSummaryForSelectedItem() {
-        guard editDraft == nil else { return }
-        processingConfirmation = nil
-        cancelProcessing()
-        let request = UUID()
-        summaryLoadID = request
-        savedSummary = nil
-        transcript = nil
-        screenOCRWarning = nil
-        guard let selectedItem else {
-            summaryState = .idle
+        guard editDraft == nil, refreshRunID == nil else {
             return
         }
+        cancelSummaryLoad()
+        guard let item = selectedItem else {
+            return
+        }
+        let key = RecordingKey(item)
+        // Selection only changes the visible result; generation still belongs to its recording.
+        guard processingTasks[key] == nil else {
+            return
+        }
+        let run = Run(recording: key)
+        recordingResults[key] = RecordingResult(run: run, state: .loadingSaved)
+        summaryLoadRun = run
 
-        let item = selectedItem
-        summaryState = .loadingSaved
-
-        Task {
+        summaryLoadTask = Task {
+            defer {
+                if summaryLoadRun == run {
+                    summaryLoadRun = nil
+                    summaryLoadTask = nil
+                }
+            }
             do {
                 let savedTranscript = try await summaryStore.transcript(for: item)
-                guard self.summaryLoadID == request, self.selectedItem?.mixdownURL == item.mixdownURL else {
-                    return
-                }
-                transcript = savedTranscript
+                try validateRun(run)
+                updateResult(for: run) { $0.transcript = savedTranscript }
                 let summary = try await summaryStore.summary(for: item)
-                guard self.summaryLoadID == request, self.selectedItem?.mixdownURL == item.mixdownURL else {
-                    return
+                try validateRun(run)
+                updateResult(for: run) {
+                    $0.summary = summary
+                    $0.state = summary.map(SummaryState.summarized) ?? .idle
                 }
-                savedSummary = summary
-                if let summary {
-                    summaryState = .summarized(summary)
-                } else {
-                    summaryState = .idle
-                }
+            } catch is CancellationError {
+                // A replacement load or refresh owns the visible state now.
             } catch {
-                guard self.summaryLoadID == request, self.selectedItem?.mixdownURL == item.mixdownURL else {
+                guard !Task.isCancelled else {
                     return
                 }
-                summaryState = .failed(error.localizedDescription)
+                updateResult(for: run) { $0.state = .failed(error.localizedDescription) }
             }
         }
+    }
+
+    private func cancelSummaryLoad() {
+        summaryLoadTask?.cancel()
+        summaryLoadTask = nil
+        if let run = summaryLoadRun, recordingResults[run.recording]?.run == run {
+            recordingResults[run.recording] = nil
+        }
+        summaryLoadRun = nil
     }
 
     var summaryInputWarning: String? {
@@ -364,17 +450,28 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func cancelProcessing() {
-        processingTask?.cancel()
-        processingTask = nil
-        guard processingRunID != nil else {
+        guard let item = selectedItem,
+              let processing = processingTasks[RecordingKey(item)] else {
             return
         }
-        processingRunID = nil
-        summaryState = .cancelled
+        processing.task.cancel()
+        processingTasks[processing.run.recording] = nil
+        // A fresh execution identity rejects even callbacks that ignore cancellation.
+        if var result = recordingResults[processing.run.recording] {
+            result = RecordingResult(
+                run: Run(recording: processing.run.recording), state: .cancelled,
+                summary: result.summary, transcript: result.transcript,
+                screenOCRWarning: result.screenOCRWarning
+            )
+            recordingResults[processing.run.recording] = result
+        }
     }
 
     func beginTranscriptEditing() {
         guard metadataItem == nil, trashPlan == nil, !isSummaryBusy, editDraft == nil, let transcript, let item = selectedItem else { return }
+        guard !LibraryActivity.isBusy(item.mixdownURL) else {
+            return
+        }
         editingItem = item
         editingActivity = LibraryActivity.begin(item.mixdownURL)
         editError = nil
@@ -383,6 +480,9 @@ final class LibraryViewModel: ObservableObject {
 
     func beginSummaryEditing() {
         guard metadataItem == nil, trashPlan == nil, !isSummaryBusy, editDraft == nil, let savedSummary, let item = selectedItem else { return }
+        guard !LibraryActivity.isBusy(item.mixdownURL) else {
+            return
+        }
         editingItem = item
         editingActivity = LibraryActivity.begin(item.mixdownURL)
         editError = nil
@@ -452,7 +552,9 @@ final class LibraryViewModel: ObservableObject {
         runProcessing(confirmation.stage, template: confirmation.template, overwriteConfirmed: true)
     }
 
-    private func overwriteWarning(for stage: LibraryProcessingStage, transcript: TranscriptResult?) -> String? {
+    private func overwriteWarning(
+        for stage: LibraryProcessingStage, transcript: TranscriptResult?, summary: MeetingSummary?
+    ) -> String? {
         var names: [String] = []
         if (stage == .all || stage == .transcription), transcript?.audioEditedAt != nil {
             names.append("音声の文字起こし")
@@ -460,7 +562,7 @@ final class LibraryViewModel: ObservableObject {
         if (stage == .all || stage == .screenOCR), transcript?.screenEditedAt != nil {
             names.append("画面OCR")
         }
-        if (stage == .all || stage == .summary), savedSummary?.editedAt != nil {
+        if (stage == .all || stage == .summary), summary?.editedAt != nil {
             names.append("要約・トピック・TODO")
         }
         guard !names.isEmpty else { return nil }
@@ -471,34 +573,42 @@ final class LibraryViewModel: ObservableObject {
         guard metadataItem == nil, trashPlan == nil, !isSummaryBusy, editDraft == nil, let item = selectedItem else {
             return
         }
+        guard !LibraryActivity.isBusy(item.mixdownURL) else {
+            return
+        }
         // Saved text is reloaded below so external/manual edits are respected.
         if stage != .summary, let reason = unavailableReason(for: stage) {
             summaryState = .failed(reason)
             return
         }
-        summaryLoadID = UUID()
-        let runID = UUID()
-        processingRunID = runID
-        summaryState = stage.initialState
-        screenOCRWarning = nil
+        cancelSummaryLoad()
+        let key = RecordingKey(item)
+        let run = Run(recording: key)
+        let previous = recordingResults[key]
+        recordingResults[key] = RecordingResult(
+            run: run, state: stage.initialState,
+            summary: previous?.summary, transcript: previous?.transcript
+        )
         let locale = Locale(identifier: AppSettings.shared.preferences.localeIdentifier)
         let selectedTemplate = template ?? SummaryTemplate.builtIn
 
         let activity = LibraryActivity.begin(item.mixdownURL)
-        processingTask = Task {
+        let task = Task {
             defer {
                 LibraryActivity.end(activity)
-                if processingRunID == runID {
-                    processingRunID = nil
-                    processingTask = nil
+                if processingTasks[key]?.run == run {
+                    processingTasks[key] = nil
                 }
             }
             do {
                 let saved = try await summaryStore.transcript(for: item)
-                try validateRun(runID, item: item)
-                if !overwriteConfirmed, let warning = overwriteWarning(for: stage, transcript: saved) {
-                    processingConfirmation = ProcessingConfirmation(stage: stage, template: template, message: warning)
-                    summaryState = savedSummary.map(SummaryState.summarized) ?? .idle
+                try validateRun(run)
+                if !overwriteConfirmed,
+                   let warning = overwriteWarning(for: stage, transcript: saved, summary: previous?.summary) {
+                    updateResult(for: run) {
+                        $0.confirmation = ProcessingConfirmation(stage: stage, template: template, message: warning)
+                        $0.state = $0.summary.map(SummaryState.summarized) ?? .idle
+                    }
                     return
                 }
                 var input = saved ?? TranscriptResult(
@@ -511,73 +621,74 @@ final class LibraryViewModel: ObservableObject {
                         fallbackURL: item.hasUsableMixdown ? item.mixdownURL : nil,
                         locale: locale
                     ).retainingScreen(from: saved)
-                    try validateRun(runID, item: item)
+                    try validateRun(run)
                 }
                 if stage == .screenOCR || stage == .all {
-                    input = try await recognizeScreen(input, item: item, stage: stage, runID: runID)
-                    try validateRun(runID, item: item)
+                    input = try await recognizeScreen(input, item: item, stage: stage, run: run)
+                    try validateRun(run)
                 }
                 if stage != .summary {
                     try await summaryStore.save(input, for: item)
-                    try validateRun(runID, item: item)
+                    try validateRun(run)
                 }
                 if stage == .summary, input.summaryInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    summaryState = .failed(Self.missingSummaryInputMessage)
+                    updateResult(for: run) { $0.state = .failed(Self.missingSummaryInputMessage) }
                     return
                 }
-                transcript = input
+                updateResult(for: run) { $0.transcript = input }
                 guard stage == .all || stage == .summary else {
-                    summaryState = savedSummary.map(SummaryState.summarized) ?? .idle
+                    updateResult(for: run) { $0.state = $0.summary.map(SummaryState.summarized) ?? .idle }
                     scheduleSearch()
                     return
                 }
                 guard !input.summaryInputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    summaryState = .failed(Self.missingSummaryInputMessage)
+                    updateResult(for: run) { $0.state = .failed(Self.missingSummaryInputMessage) }
                     return
                 }
-                summaryState = .summarizing
+                updateResult(for: run) { $0.state = .summarizing }
                 let result = await summaryService.summarize(input, template: selectedTemplate) { [weak self] progress in
-                    await self?.updateSummaryProgress(progress, for: item, runID: runID)
+                    await self?.updateSummaryProgress(progress, run: run)
                 }
-                try validateRun(runID, item: item)
-                try await handleSummaryResult(result, input: input, for: item, runID: runID)
+                try validateRun(run)
+                try await handleSummaryResult(result, input: input, for: item, run: run)
                 scheduleSearch()
             } catch is CancellationError {
-                if processingRunID == runID {
-                    summaryState = .cancelled
-                }
+                updateResult(for: run) { $0.state = .cancelled }
             } catch {
-                guard processingRunID == runID else {
+                guard !Task.isCancelled else {
                     return
                 }
-                summaryState = .failed(error.localizedDescription)
+                updateResult(for: run) { $0.state = .failed(error.localizedDescription) }
             }
         }
+        processingTasks[key] = (run, task)
     }
 
-    private func validateRun(_ runID: UUID, item: RecordingLibraryItem) throws {
+    private func validateRun(_ run: Run) throws {
         try Task.checkCancellation()
-        guard processingRunID == runID, selectedItem?.mixdownURL == item.mixdownURL else {
+        guard recordingResults[run.recording]?.run == run else {
             throw CancellationError()
         }
     }
 
     private func recognizeScreen(
         _ input: TranscriptResult, item: RecordingLibraryItem,
-        stage: LibraryProcessingStage, runID: UUID
+        stage: LibraryProcessingStage, run: Run
     ) async throws -> TranscriptResult {
         guard let videoURL = item.existingScreenCaptureURL else {
             return input
         }
-        summaryState = .recognizingScreen
+        updateResult(for: run) { $0.state = .recognizingScreen }
         do {
             return try await screenEnricher.enrich(input, videoURL: videoURL)
         } catch {
-            try validateRun(runID, item: item)
+            try validateRun(run)
             guard stage == .all else {
                 throw error
             }
-            screenOCRWarning = "画面テキストを抽出できませんでした。前回の画面テキストを保持します: \(error.localizedDescription)"
+            updateResult(for: run) {
+                $0.screenOCRWarning = "画面テキストを抽出できませんでした。前回の画面テキストを保持します: \(error.localizedDescription)"
+            }
             return input
         }
     }
@@ -598,6 +709,7 @@ final class LibraryViewModel: ObservableObject {
         guard let selectedItem else {
             return nil
         }
+        let result = recordingResults[RecordingKey(selectedItem)]
 
         let notes: [RecordingNote]
         if let url = RecordingNoteStore().url(for: selectedItem.mixdownURL) {
@@ -609,8 +721,8 @@ final class LibraryViewModel: ObservableObject {
         return MeetingExportDocument(
             title: selectedItem.title,
             createdAt: selectedItem.createdAt,
-            summary: savedSummary,
-            transcript: transcript,
+            summary: result?.summary,
+            transcript: result?.transcript,
             notes: notes
         )
     }
@@ -641,19 +753,59 @@ final class LibraryViewModel: ObservableObject {
     }
 
     private func refresh(shouldShowLoading: Bool) async {
-        guard editDraft == nil, metadataItem == nil, trashPlan == nil else { return }
+        guard let request = beginRefresh(shouldShowLoading: shouldShowLoading) else {
+            return
+        }
+        await performRefresh(request: request)
+    }
+
+    private func beginRefresh(shouldShowLoading: Bool) -> UUID? {
+        guard editDraft == nil, metadataItem == nil, trashPlan == nil else {
+            return nil
+        }
+        refreshTask?.cancel()
+        refreshTask = nil
+        cancelSummaryLoad()
+        for processing in processingTasks.values {
+            processing.task.cancel()
+        }
+        processingTasks.removeAll()
+        recordingResults.removeAll()
+        searchTask?.cancel()
+        searchProgress = nil
+        stopPlayback()
+
+        let request = UUID()
+        refreshRunID = request
         if shouldShowLoading {
             state = .loading
         }
+        return request
+    }
 
+    private func performRefresh(request: UUID) async {
+        defer {
+            if refreshRunID == request {
+                refreshRunID = nil
+                refreshTask = nil
+            }
+        }
         do {
             let loadedItems = try await store.recordings()
-            guard editDraft == nil, metadataItem == nil, trashPlan == nil else { return }
+            guard refreshRunID == request, !Task.isCancelled,
+                  editDraft == nil, metadataItem == nil, trashPlan == nil else {
+                return
+            }
             reconcileSelection(with: loadedItems)
             state = loadedItems.isEmpty ? .empty : .loaded(loadedItems)
+            refreshRunID = nil
+            refreshTask = nil
             loadSummaryForSelectedItem()
             scheduleSearch()
         } catch {
+            guard refreshRunID == request, !Task.isCancelled else {
+                return
+            }
             state = .failed(error.localizedDescription)
         }
     }
@@ -694,34 +846,36 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
-    private func updateSummaryProgress(_ progress: SummaryProgress, for item: RecordingLibraryItem, runID: UUID) {
-        guard processingRunID == runID, selectedItem?.mixdownURL == item.mixdownURL else {
+    private func updateSummaryProgress(_ progress: SummaryProgress, run: Run) {
+        guard processingTasks[run.recording]?.run == run else {
             return
         }
-        summaryState = .summaryProgress(progress)
+        updateResult(for: run) { $0.state = .summaryProgress(progress) }
     }
 
     private func handleSummaryResult(
         _ result: TranscriptSummaryResult, input: TranscriptResult,
-        for item: RecordingLibraryItem, runID: UUID
+        for item: RecordingLibraryItem, run: Run
     ) async throws {
         switch result {
         case let .summarized(summary):
             let recorded = summary.recording(input: input)
             try await summaryStore.save(recorded, for: item)
-            try validateRun(runID, item: item)
-            savedSummary = recorded
-            summaryState = .summarized(recorded)
+            try validateRun(run)
+            updateResult(for: run) {
+                $0.summary = recorded
+                $0.state = .summarized(recorded)
+            }
         case let .unavailable(reason):
-            summaryState = .unavailable(reason.localizedDescription)
+            updateResult(for: run) { $0.state = .unavailable(reason.localizedDescription) }
         case let .failed(error):
-            summaryState = .failed(error.localizedDescription)
+            updateResult(for: run) { $0.state = .failed(error.localizedDescription) }
         }
     }
 
     private func reconcileSelection(with loadedItems: [RecordingLibraryItem]) {
         guard !loadedItems.isEmpty else {
-            selectedID = nil
+            selectedRecordingID = nil
             return
         }
 
@@ -729,6 +883,6 @@ final class LibraryViewModel: ObservableObject {
             return
         }
 
-        selectedID = loadedItems.first?.id
+        selectedRecordingID = loadedItems.first?.id
     }
 }

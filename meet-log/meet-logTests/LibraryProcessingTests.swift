@@ -369,7 +369,7 @@ struct LibraryProcessingTests {
     }
 
     @Test(arguments: [LibraryProcessingStage.transcription, .screenOCR, .summary])
-    func switchingAwayAndBackRejectsLateResultFromPreviousRun(stage: LibraryProcessingStage) async throws {
+    func switchingAwayAndBackReattachesToRecordingOwnedRun(stage: LibraryProcessingStage) async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         try await fixture.seed()
@@ -384,16 +384,27 @@ struct LibraryProcessingTests {
         #expect(model.transcript == nil)
         #expect(model.savedSummary == nil)
         model.select(fixture.item)
-        try await settled(model)
-        await fixture.services.release()
-        try await waitFor { await fixture.services.finishedCalls == 1 }
-        try await Task.sleep(for: .milliseconds(30))
+        #expect(model.isSummaryBusy)
         #expect(model.transcript == fixture.original)
-        #expect(model.savedSummary == fixture.summary)
+        model.runProcessing(stage)
+        #expect(await fixture.services.totalCalls == 1)
+        await fixture.services.release()
+        try await settled(model)
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(fixture.item.mixdownURL) }
         #expect(try await fixture.storage.transcript(for: fixture.other) == nil)
         #expect(try await fixture.storage.summary(for: fixture.other) == nil)
-        #expect(try await fixture.storage.summary(for: fixture.item) == fixture.summary)
-        #expect(try await fixture.storage.transcript(for: fixture.item) == fixture.original)
+        #expect(try await fixture.storage.summary(for: fixture.item) == model.savedSummary)
+        #expect(try await fixture.storage.transcript(for: fixture.item) == model.transcript)
+        switch stage {
+        case .transcription:
+            #expect(model.transcript?.text == "new speech")
+        case .screenOCR:
+            #expect(model.transcript?.screenSegments.first?.text == "new screen")
+        case .summary:
+            #expect(model.savedSummary?.summary == "new summary")
+        case .all:
+            Issue.record("Unexpected test stage")
+        }
     }
 
     @Test func missingInputsProvideReasonsWithoutCallingServices() async throws {
