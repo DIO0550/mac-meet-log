@@ -302,7 +302,7 @@ struct MeetingExportFormatter {
             return "## 文字起こし\n\n\(transcript.text)"
         }
         let lines = transcript.segments.map { segment in
-            let speaker = segment.speaker?.displayName ?? "話者不明"
+            let speaker = transcript.speakerName(for: segment) ?? "話者不明"
             return "- [\(segment.timeRangeText)] **\(speaker)**: \(segment.text)"
         }
         return "## 文字起こし\n\n\(lines.joined(separator: "\n"))"
@@ -313,7 +313,7 @@ struct MeetingExportFormatter {
             return "文字起こし\n\(transcript.text)"
         }
         let lines = transcript.segments.map { segment in
-            let speaker = segment.speaker?.displayName ?? "話者不明"
+            let speaker = transcript.speakerName(for: segment) ?? "話者不明"
             return "[\(segment.timeRangeText)] \(speaker): \(segment.text)"
         }
         return "文字起こし\n\(lines.joined(separator: "\n"))"

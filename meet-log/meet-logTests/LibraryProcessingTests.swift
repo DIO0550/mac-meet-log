@@ -4,6 +4,68 @@ import Testing
 
 @MainActor
 struct LibraryProcessingTests {
+    @Test func manualSpeakerAssignmentsReachReloadSearchExportAndResummary() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try await fixture.seed()
+        let model = fixture.model()
+        await model.load()
+        try await settled(model)
+        model.beginTranscriptEditing()
+        model.editDraft?.addParticipant(named: "土居")
+        let id = try #require(model.editDraft?.participants.first?.id)
+        model.editDraft?.assignParticipant(id, to: [0])
+        await model.saveEdits()
+        #expect(model.editError == nil)
+        let edited = try #require(model.transcript)
+        #expect(edited.summaryInputText.contains("土居: original"))
+        #expect(model.summaryInputWarning != nil)
+
+        let reloaded = fixture.model()
+        await reloaded.load()
+        try await settled(reloaded)
+        #expect(reloaded.transcript == edited)
+        let document = try #require(reloaded.exportDocumentForSelectedItem())
+        #expect(MeetingExportFormatter().markdown(for: document, sections: [.transcript]).contains("**土居**: original"))
+        reloaded.searchQuery = "土居"
+        try await waitFor { @MainActor in reloaded.searchProgress?.isComplete == true }
+        #expect(reloaded.searchResults.map(\.item.id) == [fixture.item.id])
+        reloaded.runProcessing(.summary)
+        try await settled(reloaded)
+        #expect(await fixture.services.summaryInputs.first == edited)
+        #expect(await fixture.services.speechCalls == 0)
+        #expect(await fixture.services.ocrCalls == 0)
+    }
+
+    @Test func ocrRetainsManualSpeakersAndAudioRegenerationClearsAssignmentsAfterConfirmation() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try await fixture.seed()
+        let model = fixture.model()
+        await model.load()
+        try await settled(model)
+        model.beginTranscriptEditing()
+        model.editDraft?.addParticipant(named: "土居")
+        let id = try #require(model.editDraft?.participants.first?.id)
+        model.editDraft?.assignParticipant(id, to: [0])
+        await model.saveEdits()
+        let assigned = try #require(model.transcript)
+        model.runProcessing(.screenOCR)
+        try await settled(model)
+        #expect(model.processingConfirmation == nil)
+        #expect(model.transcript?.participants == assigned.participants)
+        #expect(model.transcript?.segments == assigned.segments)
+        model.runProcessing(.transcription)
+        try await settled(model)
+        #expect(model.processingConfirmation != nil)
+        #expect(await fixture.services.speechCalls == 0)
+        model.confirmProcessingOverwrite()
+        try await settled(model)
+        #expect(model.transcript?.participants == assigned.participants)
+        #expect(model.transcript?.segments.allSatisfy { $0.participantID == nil } == true)
+        #expect(model.transcript?.audioEditedAt == nil)
+    }
+
     @Test func cancelledProcessingKeepsManagementBlockedUntilWorkerExits() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

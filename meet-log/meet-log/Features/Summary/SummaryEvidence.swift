@@ -22,13 +22,14 @@ nonisolated struct SummaryEvidence: Equatable, Identifiable, Sendable {
     let timestamp: TimeInterval
     let duration: TimeInterval
     let speaker: TranscriptSpeaker?
+    let speakerName: String?
 
     var timeRangeText: String {
         TranscriptSegment(text: text, timestamp: timestamp, duration: duration).timeRangeText
     }
 
     var promptLabel: String {
-        let speakerLabel = speaker.map { "\($0.displayName): " } ?? ""
+        let speakerLabel = speakerName.map { "\($0): " } ?? ""
         return "[\(id) \(source.label) \(timeRangeText)] \(speakerLabel)"
     }
 }
@@ -43,13 +44,15 @@ nonisolated struct SummaryEvidenceCatalog: Sendable {
     init(_ transcript: TranscriptResult) {
         let audioInput = transcript.segments.map { segment in
             let evidence = Self.entry(source: .audio, text: segment.text, timestamp: segment.timestamp,
-                                      duration: segment.duration, speaker: segment.speaker, url: transcript.sourceURL)
-            return SummaryEvidenceInput(text: segment.text, screen: false, evidence: evidence)
+                                      duration: segment.duration, speaker: segment.speaker, url: transcript.sourceURL,
+                                      participantID: segment.participantID, speakerName: transcript.speakerName(for: segment))
+            return SummaryEvidenceInput(text: segment.text, screen: false, evidence: evidence,
+                                        speakerName: transcript.speakerName(for: segment))
         }
         let screenInput = transcript.screenSegments.map { segment in
             let evidence = Self.entry(source: .screen, text: segment.text, timestamp: segment.timestamp,
                                       duration: segment.duration, speaker: nil, url: transcript.sourceURL)
-            return SummaryEvidenceInput(text: segment.text, screen: true, evidence: evidence)
+            return SummaryEvidenceInput(text: segment.text, screen: true, evidence: evidence, speakerName: nil)
         }
         self.audioInput = audioInput
         self.screenInput = screenInput
@@ -74,7 +77,7 @@ nonisolated struct SummaryEvidenceCatalog: Sendable {
 
     static func modelInput(_ transcript: TranscriptResult) -> String {
         let catalog = Self(transcript)
-        let audio = catalog.audioInput.isEmpty ? transcript.text : catalog.audioInput.map(\.modelText).joined(separator: "\n")
+        let audio = catalog.audioInput.isEmpty ? transcript.audioText : catalog.audioInput.map(\.modelText).joined(separator: "\n")
         guard !transcript.screenSegments.isEmpty else {
             return audio
         }
@@ -84,17 +87,23 @@ nonisolated struct SummaryEvidenceCatalog: Sendable {
 
     private static func entry(
         source: SummaryEvidence.Source, text: String, timestamp: TimeInterval,
-        duration: TimeInterval, speaker: TranscriptSpeaker?, url: URL
+        duration: TimeInterval, speaker: TranscriptSpeaker?, url: URL,
+        participantID: UUID? = nil, speakerName: String? = nil
     ) -> SummaryEvidence? {
         guard timestamp.isFinite, duration.isFinite, timestamp >= 0, duration >= 0,
               (timestamp + duration).isFinite, timestamp + duration < Double(Int.max),
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }
-        let identity = hash([url.absoluteString, source.rawValue, text,
-                             String(timestamp), String(duration), speaker?.rawValue ?? ""])
+        var fields = [url.absoluteString, source.rawValue, text,
+                      String(timestamp), String(duration), speaker?.rawValue ?? ""]
+        if let participantID {
+            fields += [participantID.uuidString, speakerName ?? ""]
+        }
+        let identity = hash(fields)
         return SummaryEvidence(id: "\(source.rawValue)-\(identity.prefix(16))", source: source,
-                               text: text, timestamp: timestamp, duration: duration, speaker: speaker)
+                               text: text, timestamp: timestamp, duration: duration, speaker: speaker,
+                               speakerName: speakerName ?? speaker?.displayName)
     }
 
     private static func hash(_ fields: [String]) -> String {
@@ -108,10 +117,16 @@ nonisolated struct SummaryEvidenceInput: Sendable {
     let text: String
     let screen: Bool
     let evidence: SummaryEvidence?
+    let speakerName: String?
 
     var label: String {
         guard let evidence else {
-            return screen ? "[画面 OCR・補助情報・時刻未確認] " : "[音声・時刻未確認] "
+            if screen {
+                return "[画面 OCR・補助情報・時刻未確認] "
+            }
+
+            let speakerLabel = speakerName.map { "\($0): " } ?? ""
+            return "[音声・時刻未確認] " + speakerLabel
         }
         return evidence.promptLabel
     }

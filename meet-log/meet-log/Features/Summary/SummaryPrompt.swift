@@ -26,9 +26,7 @@ struct SummaryPromptBuilder: Sendable {
             return .failure(.transcriptTooLong(characterCount: trimmedText.count, limit: characterLimit))
         }
 
-        let speakerInstruction = transcript.segments.contains(where: { $0.speaker != nil })
-            ? "話者ラベル（自分 / 相手）を担当者推定に使い、根拠がない担当者は推測しないでください。\n"
-            : ""
+        let speakerInstruction = Self.speakerInstructions(for: transcript)
 
         let screenInstruction = transcript.screenSegments.isEmpty ? "" : Self.screenInstructions
 
@@ -42,6 +40,14 @@ struct SummaryPromptBuilder: Sendable {
                 )
             )
         )
+    }
+
+    nonisolated static func speakerInstructions(for transcript: TranscriptResult) -> String {
+        guard transcript.segments.contains(where: { transcript.speakerName(for: $0) != nil }) else {
+            return ""
+        }
+
+        return "話者ラベル（手動で割り当てた参加者名、未割当は自分 / 相手）を担当者推定・整理に使ってください。話者であることだけではTODO担当者と確定せず、発言に根拠がない担当者は推測しないでください。\n"
     }
 
     nonisolated static let evidenceInstructions = """
@@ -75,4 +81,3 @@ struct SummaryPromptBuilder: Sendable {
         """
     }
 }
-
