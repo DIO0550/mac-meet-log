@@ -111,7 +111,8 @@ nonisolated struct ScreenTranscriptEnricher: Sendable {
             segments: transcript.segments,
             screenSegments: result.segments,
             screenOCRReport: result.report,
-            audioEditedAt: transcript.audioEditedAt
+            audioEditedAt: transcript.audioEditedAt,
+            participants: transcript.participants
         )
     }
 }

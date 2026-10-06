@@ -315,13 +315,13 @@ enum TranscriptMarkdownCodec {
         ]
 
         sections[1] += "\n- Source: \(transcript.sourceURL.path)"
-        sections.append("## Text\n\n\(transcript.text)")
+        sections.append("## Text\n\n\(transcript.audioText)")
         if !transcript.segments.isEmpty {
             sections.append(
                 """
                 ## Segments
 
-                \(transcript.segments.map(segmentLine).joined(separator: "\n"))
+                \(transcript.segments.map { segmentLine($0, transcript: transcript) }.joined(separator: "\n"))
                 """
             )
         }
@@ -331,7 +331,7 @@ enum TranscriptMarkdownCodec {
         if let data = try? JSONEncoder().encode(transcript) {
             sections.append("<!-- transcript-data: \(data.base64EncodedString()) -->")
         }
-        if transcript.audioEditedAt != nil || transcript.screenEditedAt != nil {
+        if transcript.audioEditedAt != nil || transcript.screenEditedAt != nil || !transcript.participants.isEmpty {
             sections.insert("<!-- transcript-edit-format: 1 -->", at: 1)
         }
 
@@ -350,14 +350,15 @@ enum TranscriptMarkdownCodec {
                 .trimmingCharacters(in: .whitespacesAndNewlines) else {
                 throw SummaryError.persistenceFailed("Transcript markdown is missing the text section.")
             }
-            guard text != transcript.text.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            guard text != transcript.audioText.trimmingCharacters(in: .whitespacesAndNewlines) else {
                 return transcript
             }
             return TranscriptResult(
                 text: text, localeIdentifier: transcript.localeIdentifier,
                 sourceURL: transcript.sourceURL, segments: [],
                 screenSegments: transcript.screenSegments, screenOCRReport: transcript.screenOCRReport,
-                audioEditedAt: transcript.audioEditedAt, screenEditedAt: transcript.screenEditedAt
+                audioEditedAt: transcript.audioEditedAt, screenEditedAt: transcript.screenEditedAt,
+                participants: transcript.participants
             )
         }
 
@@ -376,8 +377,8 @@ enum TranscriptMarkdownCodec {
         )
     }
 
-    private nonisolated static func segmentLine(_ segment: TranscriptSegment) -> String {
-        let speaker = segment.speaker?.displayName ?? "話者不明"
+    private nonisolated static func segmentLine(_ segment: TranscriptSegment, transcript: TranscriptResult) -> String {
+        let speaker = transcript.speakerName(for: segment) ?? "話者不明"
         return "- [\(segment.timeRangeText)] **\(speaker)**: \(segment.text)"
     }
 
@@ -421,4 +422,3 @@ private enum EditedSidecarPayload {
         return try JSONDecoder().decode(type, from: data)
     }
 }
-

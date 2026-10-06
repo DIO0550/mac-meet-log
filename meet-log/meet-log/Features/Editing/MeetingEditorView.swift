@@ -47,6 +47,7 @@ struct MeetingEditorView: View {
                 Button("保存", action: save)
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
+                    .disabled(!draft.hasValidParticipants)
             }
             .disabled(isSaving)
         }
@@ -68,20 +69,7 @@ struct MeetingEditorView: View {
 
     @ViewBuilder
     private func transcriptFields(_ original: TranscriptResult) -> some View {
-        Text("音声").font(.headline)
-        if original.segments.isEmpty {
-            Text("時刻情報のない文字起こしです。本文を編集できます。")
-                .font(.caption).foregroundStyle(.secondary)
-            multiline("文字起こし本文", text: $draft.text)
-        }
-        ForEach(original.segments.indices, id: \.self) { index in
-            let segment = original.segments[index]
-            VStack(alignment: .leading, spacing: 6) {
-                Text("\(segment.timeRangeText) · \(segment.speaker?.displayName ?? "話者不明")")
-                    .font(.caption).foregroundStyle(.secondary)
-                multiline("音声セグメント", text: $draft.segmentTexts[index])
-            }
-        }
+        TranscriptSpeakerEditorView(draft: $draft, original: original)
         if !original.screenSegments.isEmpty {
             Divider()
             Text("画面OCR（補助情報）").font(.headline)

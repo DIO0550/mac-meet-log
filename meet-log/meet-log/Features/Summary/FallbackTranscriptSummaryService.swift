@@ -51,7 +51,7 @@ struct ExtractiveTranscriptSummaryService: TranscriptSummaryService {
     }
 
     nonisolated func summarize(_ transcript: TranscriptResult) async -> TranscriptSummaryResult {
-        let text = transcript.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = transcript.audioText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
             return .failed(.emptyTranscript)
         }
@@ -132,4 +132,3 @@ private extension String {
         return String(self[..<endIndex]) + "..."
     }
 }
-

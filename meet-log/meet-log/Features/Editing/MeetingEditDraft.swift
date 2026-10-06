@@ -12,6 +12,8 @@ nonisolated struct MeetingEditDraft: Equatable, Identifiable, Sendable {
     var text: String
     var segmentTexts: [String] = []
     var screenTexts: [String] = []
+    var participants: [MeetingParticipant] = []
+    var segmentParticipantIDs: [UUID?] = []
     var topics: [MeetingTopic] = []
     var actionItems: [MeetingActionItem] = []
 
@@ -20,6 +22,8 @@ nonisolated struct MeetingEditDraft: Equatable, Identifiable, Sendable {
         text = transcript.text
         segmentTexts = transcript.segments.map(\.text)
         screenTexts = transcript.screenSegments.map(\.text)
+        participants = transcript.participants
+        segmentParticipantIDs = transcript.segments.map(\.participantID)
     }
 
     init(summary: MeetingSummary) {
@@ -41,11 +45,16 @@ nonisolated struct MeetingEditDraft: Equatable, Identifiable, Sendable {
     func editedTranscript(at date: Date = .now) -> TranscriptResult? {
         guard case .transcript(let value) = original,
               segmentTexts.count == value.segments.count,
+              segmentParticipantIDs.count == value.segments.count,
+              hasValidParticipants,
               screenTexts.count == value.screenSegments.count else {
             return nil
         }
-        let segments = zip(value.segments, segmentTexts).map { segment, text in
-            TranscriptSegment(text: text, timestamp: segment.timestamp, duration: segment.duration, speaker: segment.speaker)
+        let segments = value.segments.enumerated().map { index, segment in
+            TranscriptSegment(
+                text: segmentTexts[index], timestamp: segment.timestamp, duration: segment.duration,
+                speaker: segment.speaker, participantID: segmentParticipantIDs[index]
+            )
         }
         let screenSegments = zip(value.screenSegments, screenTexts).map { segment, text in
             ScreenTranscriptSegment(text: text, timestamp: segment.timestamp, duration: segment.duration)
@@ -53,17 +62,48 @@ nonisolated struct MeetingEditDraft: Equatable, Identifiable, Sendable {
         let audioChanged = audioHasChanges(value)
         // A timed transcript is edited exclusively through its segments. Derive the
         // aggregate used by search, export and summarization from the same values.
-        let combinedText = segments.map { segment in
-            guard let speaker = segment.speaker else { return segment.text }
-            return "\(speaker.displayName): \(segment.text)"
-        }.joined(separator: "\n")
         return TranscriptResult(
-            text: audioChanged ? (segments.isEmpty ? text : combinedText) : value.text,
+            text: audioChanged ? updatedAudioText(value, segments: segments) : value.text,
             localeIdentifier: value.localeIdentifier, sourceURL: value.sourceURL,
             segments: segments, screenSegments: screenSegments, screenOCRReport: value.screenOCRReport,
             audioEditedAt: audioChanged ? date : value.audioEditedAt,
-            screenEditedAt: screenTexts != value.screenSegments.map(\.text) ? date : value.screenEditedAt
+            screenEditedAt: screenTexts != value.screenSegments.map(\.text) ? date : value.screenEditedAt,
+            participants: participants
         )
+    }
+
+    var hasValidParticipants: Bool {
+        let ids = Set(participants.map(\.id))
+        guard ids.count == participants.count,
+              participants.allSatisfy({ !$0.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            return false
+        }
+
+        return segmentParticipantIDs.compactMap { $0 }.allSatisfy { ids.contains($0) }
+    }
+
+    mutating func addParticipant(named name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            return
+        }
+
+        participants.append(MeetingParticipant(displayName: name))
+    }
+
+    mutating func removeParticipant(_ id: UUID) {
+        participants.removeAll { $0.id == id }
+        segmentParticipantIDs = segmentParticipantIDs.map { $0 == id ? nil : $0 }
+    }
+
+    mutating func assignParticipant(_ id: UUID?, to indices: Set<Int>) {
+        if let id, !participants.contains(where: { $0.id == id }) {
+            return
+        }
+
+        for index in indices where segmentParticipantIDs.indices.contains(index) {
+            segmentParticipantIDs[index] = id
+        }
     }
 
     func editedSummary(at date: Date = .now) -> MeetingSummary? {
@@ -94,7 +134,33 @@ nonisolated struct MeetingEditDraft: Equatable, Identifiable, Sendable {
     }
 
     private func audioHasChanges(_ value: TranscriptResult) -> Bool {
-        value.segments.isEmpty ? text != value.text : segmentTexts != value.segments.map(\.text)
+        if participants != value.participants {
+            return true
+        }
+        if segmentParticipantIDs != value.segments.map(\.participantID) {
+            return true
+        }
+        if value.segments.isEmpty {
+            return text != value.text
+        }
+
+        return segmentTexts != value.segments.map(\.text)
+    }
+
+    private func updatedAudioText(_ value: TranscriptResult, segments: [TranscriptSegment]) -> String {
+        guard !segments.isEmpty else {
+            return text
+        }
+        if segmentTexts != value.segments.map(\.text) {
+            return TranscriptResult.audioText(segments: segments, participants: participants)
+        }
+        if segmentParticipantIDs != value.segments.map(\.participantID) {
+            return TranscriptResult.audioText(segments: segments, participants: participants)
+        }
+        if segments.contains(where: { $0.participantID != nil }) {
+            return TranscriptResult.audioText(segments: segments, participants: participants)
+        }
+
+        return value.text
     }
 }
-

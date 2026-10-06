@@ -67,9 +67,7 @@ nonisolated struct ChunkedSummaryPipeline: Sendable {
         let input = TranscriptResult(text: text, localeIdentifier: source.localeIdentifier, sourceURL: source.sourceURL)
         let base = try promptBuilder.makePrompt(for: input).get()
         var instructions = base.instructions
-        if source.segments.contains(where: { $0.speaker != nil }) {
-            instructions += "\n話者ラベル（自分 / 相手）を担当者推定に使い、根拠がない担当者は推測しないでください。"
-        }
+        instructions += "\n" + SummaryPromptBuilder.speakerInstructions(for: source)
         if !source.screenSegments.isEmpty {
             instructions += "\n" + SummaryPromptBuilder.screenInstructions
         }
@@ -108,4 +106,3 @@ nonisolated struct ChunkedSummaryPipeline: Sendable {
         return groups
     }
 }
-
