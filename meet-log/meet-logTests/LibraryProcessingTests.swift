@@ -127,11 +127,11 @@ struct LibraryProcessingTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         try await fixture.seed()
-        try await fixture.storage.save(MeetingSummary(
-            summary: "old", topics: [MeetingTopic(title: "old topic")],
-            actionItems: [MeetingActionItem(title: "old todo")], transcriptSourceURL: fixture.item.mixdownURL,
-            createdAt: Date(timeIntervalSince1970: 1000)
-        ), for: fixture.item)
+        let legacy = "# Meeting Summary\n\n- Created: 1970-01-01T00:16:40.000Z\n- Source: \(fixture.item.mixdownURL.path)\n\n## Summary\n\nold\n\n## Topics\n\n- old topic\n\n## Action Items\n\n- old todo\n"
+        try legacy.write(
+            to: fixture.directory.appendingPathComponent("a_summary.md"),
+            atomically: true, encoding: .utf8
+        )
         let model = fixture.model()
         await model.load()
         try await settled(model)
@@ -243,6 +243,36 @@ struct LibraryProcessingTests {
         #expect(model.editError != nil)
         #expect(model.editDraft?.segmentTexts[0] == "local edit")
         #expect(try await fixture.storage.transcript(for: fixture.item) == external)
+    }
+
+    @Test func summaryChangeWithIdenticalVisibleMarkdownIsNotOverwritten() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try await fixture.seed()
+        let original = MeetingSummary(
+            summary: "summary", topics: [MeetingTopic(title: "API", detail: "v2")],
+            actionItems: [], transcriptSourceURL: fixture.item.mixdownURL,
+            createdAt: Date(timeIntervalSince1970: 1000)
+        )
+        try await fixture.storage.save(original, for: fixture.item)
+        let model = fixture.model()
+        await model.load()
+        try await settled(model)
+        model.beginSummaryEditing()
+        defer { model.discardEdits() }
+        model.editDraft?.text = "local edit"
+        let external = MeetingSummary(
+            summary: original.summary, topics: [MeetingTopic(title: "API: v2")],
+            actionItems: [], transcriptSourceURL: original.transcriptSourceURL,
+            createdAt: original.createdAt
+        )
+        try await fixture.storage.save(external, for: fixture.item)
+
+        await model.saveEdits()
+
+        #expect(model.editError != nil)
+        #expect(model.editDraft?.text == "local edit")
+        #expect(try await fixture.storage.summary(for: fixture.item) == external)
     }
 
     @Test func summaryOnlyUsesSavedManualEditsWithoutSpeechOrOCR() async throws {
@@ -476,8 +506,8 @@ struct LibraryProcessingTests {
     }
 
     @Test func legacySummaryRemainsReadableWithoutFingerprint() throws {
-        let summary = MeetingSummary(summary: "legacy", topics: [], actionItems: [], transcriptSourceURL: nil)
-        let decoded = try MeetingSummaryMarkdownCodec.decode(MeetingSummaryMarkdownCodec.encode(summary, recordingID: "a"))
+        let markdown = "# Meeting Summary\n\n- Created: 1970-01-01T00:16:40.000Z\n\n## Summary\n\nlegacy\n"
+        let decoded = try MeetingSummaryMarkdownCodec.decode(markdown)
         #expect(decoded.summary == "legacy")
         #expect(decoded.inputFingerprint == nil)
     }

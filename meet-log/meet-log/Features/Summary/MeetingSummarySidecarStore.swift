@@ -31,11 +31,9 @@ struct MeetingSummarySidecarStore: MeetingSummaryStoring {
     nonisolated func save(_ summary: MeetingSummary, for item: RecordingLibraryItem) async throws {
         do {
             let url = summaryURL(for: item)
-            let markdown = MeetingSummaryMarkdownCodec.encode(summary, recordingID: item.id)
-            if summary.editedAt != nil {
-                guard try MeetingSummaryMarkdownCodec.decode(markdown) == summary else {
-                    throw SummaryError.persistenceFailed("編集内容を保存形式に変換できません。")
-                }
+            let markdown = try MeetingSummaryMarkdownCodec.encode(summary, recordingID: item.id)
+            guard try MeetingSummaryMarkdownCodec.decode(markdown) == summary else {
+                throw SummaryError.persistenceFailed("要約を保存形式に変換できません。")
             }
             try Task.checkCancellation()
             try markdown.write(to: url, atomically: true, encoding: .utf8)
@@ -92,7 +90,18 @@ struct MeetingSummarySidecarStore: MeetingSummaryStoring {
 }
 
 enum MeetingSummaryMarkdownCodec {
-    nonisolated static func encode(_ summary: MeetingSummary, recordingID: String) -> String {
+    // Version 1 stores the complete Codable model in a final JSON payload.
+    // Retain the existing marker so edited/evidence sidecars remain compatible.
+    nonisolated static func encode(_ summary: MeetingSummary, recordingID: String) throws -> String {
+        let data = try JSONEncoder().encode(summary)
+        var sections = renderedSections(summary, recordingID: recordingID)
+        sections.insert("<!-- summary-edit-format: 1 -->", at: 1)
+        sections.append("<!-- summary-data: \(data.base64EncodedString()) -->")
+
+        return sections.joined(separator: "\n\n") + "\n"
+    }
+
+    private nonisolated static func renderedSections(_ summary: MeetingSummary, recordingID: String) -> [String] {
         var sections = [
             "# Meeting Summary",
             metadata(
@@ -126,19 +135,20 @@ enum MeetingSummaryMarkdownCodec {
             )
         }
 
-        // Edited fields and generated evidence need exact values and stable IDs.
-        // Keep them in the versioned payload already used for edited summaries.
-        if summary.editedAt != nil || summary.hasEvidence, let data = try? JSONEncoder().encode(summary) {
-            sections.insert("<!-- summary-edit-format: 1 -->", at: 1)
-            sections.append("<!-- summary-data: \(data.base64EncodedString()) -->")
-        }
-        return sections.joined(separator: "\n\n") + "\n"
+        return sections
     }
 
     nonisolated static func decode(_ markdown: String) throws -> MeetingSummary {
         if markdown.hasPrefix("# Meeting Summary\n\n<!-- summary-edit-format: 1 -->\n") {
             return try EditedSidecarPayload.decode(MeetingSummary.self, named: "summary-data", from: markdown)
         }
+
+        guard !markdown.hasPrefix("# Meeting Summary\n\n<!-- summary-edit-format:") else {
+            throw SummaryError.persistenceFailed("未対応または不正な要約の保存形式です。")
+        }
+
+        // Unversioned Markdown is read-only legacy input. Migration happens only
+        // when the user explicitly saves edits or regenerates the summary.
         let sections = sectionBodies(from: markdown)
         guard let summaryText = sections["Summary"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !summaryText.isEmpty else {

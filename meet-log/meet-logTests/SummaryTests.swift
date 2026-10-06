@@ -168,17 +168,190 @@ struct SummaryTests {
         try await store.save(sampleSummary, for: item)
         let loaded = try await store.summary(for: item)
 
-        #expect(loaded?.summary == sampleSummary.summary)
-        #expect(loaded?.topics.map(\.title) == sampleSummary.topics.map(\.title))
-        #expect(loaded?.topics.map(\.detail) == sampleSummary.topics.map(\.detail))
-        #expect(loaded?.actionItems.map(\.title) == sampleSummary.actionItems.map(\.title))
-        #expect(loaded?.actionItems.map(\.owner) == sampleSummary.actionItems.map(\.owner))
-        #expect(loaded?.actionItems.map(\.dueDateText) == sampleSummary.actionItems.map(\.dueDateText))
-        #expect(loaded?.transcriptSourceURL == sampleSummary.transcriptSourceURL)
-        #expect(loaded?.createdAt == sampleSummary.createdAt)
-        #expect(loaded?.templateID == sampleSummary.templateID)
-        #expect(loaded?.templateName == sampleSummary.templateName)
+        #expect(loaded == sampleSummary)
         #expect(FileManager.default.fileExists(atPath: directoryURL.appendingPathComponent("2026-05-19_10-30-00_summary.md").path))
+    }
+
+    @MainActor
+    @Test func generatedSummaryRoundTripsSpecialCharactersWhitespaceAndMetadata() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let item = libraryItem(directoryURL: directoryURL)
+        let store = MeetingSummarySidecarStore()
+        let expected = MeetingSummary(
+            summary: "\n  要約\n## Topics\n- 箇条書き\n<!-- summary-data: invalid -->\n",
+            topics: [
+                MeetingTopic(title: "API: v2", detail: "一行目\n二行目\n## Action Items\n- 項目"),
+                MeetingTopic(title: "# 見出し (任意), 補足", detail: ""),
+                MeetingTopic(title: "詳細なし")
+            ],
+            actionItems: [
+                MeetingActionItem(title: "確認する (任意)", owner: "Doe, John", dueDateText: "金曜 (予定), 来週"),
+                MeetingActionItem(title: "\n## Summary\n- 対応\n", owner: "担当: A\nB", dueDateText: ""),
+                MeetingActionItem(title: "担当・期限なし")
+            ],
+            transcriptSourceURL: URL(string: "https://example.com/transcript?version=2"),
+            createdAt: Date(timeIntervalSince1970: 1_800_000_000.123456),
+            templateID: "template: v2", templateName: "\nテンプレート\n## Summary",
+            inputFingerprint: "input-fingerprint"
+        )
+
+        #expect(expected.editedAt == nil)
+        #expect(!expected.hasEvidence)
+        try await store.save(expected, for: item)
+        #expect(try await store.summary(for: item) == expected)
+        #expect(try await store.summary(for: item) == expected)
+
+        // Human-readable sections are a view; changing them cannot reparse values.
+        let url = directoryURL.appendingPathComponent("\(item.id)_summary.md")
+        let markdown = try String(contentsOf: url, encoding: .utf8)
+        #expect(markdown.contains("## Summary"))
+        #expect(markdown.contains("確認する (任意)"))
+        let changedDisplay = markdown.replacingOccurrences(of: "API: v2", with: "表示だけ変更")
+        try changedDisplay.write(to: url, atomically: true, encoding: .utf8)
+        #expect(try await store.summary(for: item) == expected)
+    }
+
+    @Test func structuredSummaryPreservesEmptyValuesAndEvidenceMetadata() throws {
+        let expected = MeetingSummary(
+            summary: "", topics: [MeetingTopic(title: "", detail: "", evidenceIDs: [])],
+            actionItems: [MeetingActionItem(title: "", owner: "", dueDateText: "", evidenceIDs: ["audio-1"])],
+            transcriptSourceURL: nil, createdAt: Date(timeIntervalSince1970: 1000.123456),
+            templateID: "", templateName: "", inputFingerprint: "",
+            editedAt: Date(timeIntervalSince1970: 2000.654321),
+            evidenceIDs: ["audio-1"], evidenceInputFingerprint: "evidence-fingerprint"
+        )
+        let markdown = try MeetingSummaryMarkdownCodec.encode(expected, recordingID: "a")
+
+        #expect(try MeetingSummaryMarkdownCodec.decode(markdown) == expected)
+    }
+
+    @MainActor
+    @Test func legacySummaryIsReadWithoutRewritingAndMigratesOnExplicitSave() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let item = libraryItem(directoryURL: directoryURL)
+        let url = directoryURL.appendingPathComponent("\(item.id)_summary.md")
+        let legacy = """
+        # Meeting Summary
+
+        - Recording: legacy
+        - Created: 2026-01-01T00:00:00.000Z
+        - Source: /tmp/legacy.m4a
+        - Template ID: legacy-template
+        - Template: 会議
+        - Input SHA256: legacy-input
+
+        ## Summary
+
+        旧要約
+
+        ## Topics
+
+        - 設計: 旧詳細
+
+        ## Action Items
+
+        - 確認 (Owner: DIO, Due: 明日)
+
+        """
+        let originalBytes = Data(legacy.utf8)
+        try originalBytes.write(to: url)
+        let store = MeetingSummarySidecarStore()
+        let loaded = try #require(try await store.summary(for: item))
+
+        #expect(loaded.summary == "旧要約")
+        #expect(loaded.topics[0].title == "設計")
+        #expect(loaded.topics[0].detail == "旧詳細")
+        #expect(loaded.actionItems[0].title == "確認")
+        #expect(loaded.actionItems[0].owner == "DIO")
+        #expect(loaded.actionItems[0].dueDateText == "明日")
+        #expect(loaded.createdAt == Date(timeIntervalSince1970: 1_767_225_600))
+        #expect(loaded.transcriptSourceURL == URL(fileURLWithPath: "/tmp/legacy.m4a"))
+        #expect(loaded.templateID == "legacy-template")
+        #expect(loaded.templateName == "会議")
+        #expect(loaded.inputFingerprint == "legacy-input")
+        #expect(try Data(contentsOf: url) == originalBytes)
+
+        try await store.save(loaded, for: item)
+        #expect(try await store.summary(for: item) == loaded)
+        #expect(try String(contentsOf: url, encoding: .utf8).contains("<!-- summary-edit-format: 1 -->"))
+    }
+
+    @Test func existingVersionOneEditedPayloadRemainsReadable() throws {
+        let json = #"{"summary":"旧編集","topics":[{"id":"00000000-0000-0000-0000-000000000001","title":"API: v2"}],"actionItems":[],"createdAt":123.125,"editedAt":456.25}"#
+        let markdown = "# Meeting Summary\n\n<!-- summary-edit-format: 1 -->\n\n## Summary\n\n表示\n\n<!-- summary-data: \(Data(json.utf8).base64EncodedString()) -->\n"
+        let loaded = try MeetingSummaryMarkdownCodec.decode(markdown)
+
+        #expect(loaded.summary == "旧編集")
+        #expect(loaded.topics[0].title == "API: v2")
+        #expect(loaded.topics[0].id == sampleSummary.topics[0].id)
+        #expect(loaded.createdAt == Date(timeIntervalSinceReferenceDate: 123.125))
+        #expect(loaded.editedAt == Date(timeIntervalSinceReferenceDate: 456.25))
+    }
+
+    @Test func invalidStructuredSummaryNeverFallsBackToVisibleMarkdown() throws {
+        let valid = try MeetingSummaryMarkdownCodec.encode(sampleSummary, recordingID: "a")
+        let payloadStart = try #require(valid.range(of: "<!-- summary-data: ")).lowerBound
+        let withoutPayload = String(valid[..<payloadStart])
+        let invalidMarkdowns = [
+            withoutPayload,
+            withoutPayload + "<!-- summary-data: invalid -->\n",
+            withoutPayload + "<!-- summary-data: e30= -->\n",
+            valid.replacingOccurrences(of: "summary-edit-format: 1", with: "summary-edit-format: 2"),
+            valid.replacingOccurrences(of: "summary-edit-format: 1 -->", with: "summary-edit-format: broken")
+        ]
+
+        for markdown in invalidMarkdowns {
+            #expect(throws: (any Error).self) {
+                try MeetingSummaryMarkdownCodec.decode(markdown)
+            }
+        }
+    }
+
+    @MainActor
+    @Test func encodingFailurePreservesExistingSummaryBytes() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directoryURL) }
+        let item = libraryItem(directoryURL: directoryURL)
+        let store = MeetingSummarySidecarStore()
+        try await store.save(sampleSummary, for: item)
+        let url = directoryURL.appendingPathComponent("\(item.id)_summary.md")
+        let originalBytes = try Data(contentsOf: url)
+        let invalid = MeetingSummary(
+            summary: "保存できない日時", topics: [], actionItems: [], transcriptSourceURL: nil,
+            createdAt: Date(timeIntervalSince1970: .infinity)
+        )
+
+        await #expect(throws: SummaryError.self) {
+            try await store.save(invalid, for: item)
+        }
+        #expect(try Data(contentsOf: url) == originalBytes)
+        #expect(try await store.summary(for: item) == sampleSummary)
+    }
+
+    @MainActor
+    @Test func atomicWriteFailurePreservesExistingSummaryBytes() async throws {
+        let directoryURL = try makeTemporaryDirectory()
+        let item = libraryItem(directoryURL: directoryURL)
+        let store = MeetingSummarySidecarStore()
+        try await store.save(sampleSummary, for: item)
+        let url = directoryURL.appendingPathComponent("\(item.id)_summary.md")
+        let originalBytes = try Data(contentsOf: url)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directoryURL.path)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
+            try? FileManager.default.removeItem(at: directoryURL)
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: url.path)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directoryURL.path)
+        let replacement = MeetingSummary(summary: "置き換え", topics: [], actionItems: [], transcriptSourceURL: nil)
+
+        await #expect(throws: SummaryError.self) {
+            try await store.save(replacement, for: item)
+        }
+        #expect(try Data(contentsOf: url) == originalBytes)
+        #expect(try await store.summary(for: item) == sampleSummary)
     }
 
     @MainActor
