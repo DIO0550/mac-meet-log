@@ -3,6 +3,10 @@ import Testing
 @testable import meet_log
 
 struct RecordingLibraryTests {
+    private let fixtureDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("RecordingLibraryTests")
+        .appendingPathComponent(UUID().uuidString)
+
     @MainActor
     @Test func restoresItemFromMixdownAndOptionalTracks() throws {
         let directoryURL = try makeTemporaryDirectory()
@@ -453,7 +457,7 @@ struct RecordingLibraryTests {
         systemAudioExists: Bool = false,
         microphoneExists: Bool = false
     ) -> RecordingLibraryItem {
-        let directoryURL = URL(fileURLWithPath: "/tmp/\(id)", isDirectory: true)
+        let directoryURL = fixtureDirectory.appendingPathComponent(id, isDirectory: true)
         let systemAudioURL = systemAudioExists ? directoryURL.appendingPathComponent("\(id)_system.m4a") : nil
         let microphoneURL = microphoneExists ? directoryURL.appendingPathComponent("\(id)_microphone.m4a") : nil
 
