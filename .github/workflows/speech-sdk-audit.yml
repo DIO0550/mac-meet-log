@@ -1,0 +1,123 @@
+name: Apple Speech SDK Audit
+
+on:
+  pull_request:
+    paths:
+      - 'Task/51-apple-speaker-diarization.md'
+      - '.github/workflows/speech-sdk-audit.yml'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  audit:
+    name: Inspect public Apple Speech APIs
+    runs-on: macos-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Extract public SDK declarations
+        shell: bash
+        run: |
+          set -euo pipefail
+          export SPEECH_AUDIT_SDK_PATH="$(xcrun --sdk macosx --show-sdk-path)"
+          export SPEECH_AUDIT_DIR="$RUNNER_TEMP/apple-speech-sdk-audit"
+          sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+          mkdir -p "$SPEECH_AUDIT_DIR"
+
+          {
+            xcodebuild -version
+            sw_vers
+            uname -m
+            xcrun --sdk macosx --show-sdk-version
+          } > "$SPEECH_AUDIT_DIR/environment.txt"
+
+          xcrun swift-symbolgraph-extract \
+            -module-name Speech \
+            -sdk "$SPEECH_AUDIT_SDK_PATH" \
+            -target "$(uname -m)-apple-macosx${sdk_version}" \
+            -minimum-access-level public \
+            -output-dir "$SPEECH_AUDIT_DIR"
+
+          cat > "$SPEECH_AUDIT_DIR/AvailabilityProbe.swift" <<'SWIFT'
+          import Foundation
+          import Speech
+
+          @main
+          struct AvailabilityProbe {
+              static func main() async {
+                  print("Requested locale: ja-JP")
+                  guard #available(macOS 26.0, *) else {
+                      print("SpeechTranscriber runtime probe unavailable: host macOS < 26")
+                      return
+                  }
+
+                  #if compiler(>=6.2)
+                  print("SpeechTranscriber.isAvailable: \(SpeechTranscriber.isAvailable)")
+                  let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: "ja-JP"))
+                  print("Equivalent supported locale: \(locale?.identifier ?? "<none>")")
+                  #else
+                  print("SpeechTranscriber runtime probe unavailable: compiler < 6.2")
+                  #endif
+              }
+          }
+          SWIFT
+          xcrun swiftc -parse-as-library \
+            "$SPEECH_AUDIT_DIR/AvailabilityProbe.swift" \
+            -o "$SPEECH_AUDIT_DIR/availability-probe"
+          "$SPEECH_AUDIT_DIR/availability-probe" > "$SPEECH_AUDIT_DIR/availability.txt"
+
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          audit_dir = Path(os.environ["SPEECH_AUDIT_DIR"])
+          sdk = Path(os.environ["SPEECH_AUDIT_SDK_PATH"])
+          graphs = sorted(audit_dir.glob("*.symbols.json"))
+          if not graphs:
+              raise SystemExit("No symbol graphs produced; no API conclusion can be drawn.")
+
+          symbols = {}
+          for graph in graphs:
+              for symbol in json.loads(graph.read_text())["symbols"]:
+                  name = ".".join(symbol["pathComponents"])
+                  declaration = "".join(fragment["spelling"] for fragment in symbol.get("declarationFragments", []))
+                  symbols[name] = declaration
+
+          roots = (
+              "SpeechTranscriber.Result",
+              "SpeechTranscriber.ResultAttributeOption",
+              "DictationTranscriber.Result",
+              "DictationTranscriber.ResultAttributeOption",
+              "SpeechDetector.Result",
+              "SFTranscriptionSegment",
+              "SFVoiceAnalytics",
+          )
+          required = ("SpeechTranscriber.Result", "SFTranscriptionSegment")
+          for root in required:
+              if root not in symbols:
+                  raise SystemExit(f"Missing {root}; inspect SDK/extraction before interpreting the report.")
+
+          report = ["# Apple Speech SDK audit", "", "```text", (audit_dir / "environment.txt").read_text().strip(), "```", ""]
+          report.extend(["## Frameworks in this SDK", ""])
+          for module in ("Speech", "SoundAnalysis", "CoreML", "CoreAI", "FoundationModels"):
+              present = (sdk / "System/Library/Frameworks" / f"{module}.framework").exists()
+              report.append(f"- {module}: present={present}")
+
+          report.extend(["", "## Runtime availability (no recognition or asset download)", "", "```text", (audit_dir / "availability.txt").read_text().strip(), "```"])
+          report.extend(["", "## Public result and attribute declarations", "", "```text"])
+          for name, declaration in sorted(symbols.items()):
+              if any(name == root or name.startswith(root + ".") for root in roots):
+                  report.append(f"{name}: {declaration}")
+          report.extend(["```", "", "## Candidate names for manual review", "", "```text"])
+          candidates = [name for name in symbols if "speaker" in name.lower() or "diari" in name.lower()]
+          report.extend(sorted(candidates) or ["No public Speech symbol name contains speaker or diari."])
+          report.extend(["```", "", "Name matching alone does not prove that diarization is impossible. Compare the declarations with Apple's documentation and the project's no-additional-model constraint."])
+
+          text = "\n".join(report) + "\n"
+          (audit_dir / "report.md").write_text(text)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(text)
+          print(text)
+          PY
