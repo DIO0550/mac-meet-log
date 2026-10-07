@@ -520,11 +520,8 @@ final class LibraryViewModel: ObservableObject {
                 try await summaryStore.save(edited, for: item)
                 transcript = edited
             case .summary(let original):
-                // Legacy Markdown has no topic/TODO IDs; decoding assigns fresh UUIDs.
                 guard let stored = try await summaryStore.summary(for: item),
-                      stored == original || (stored.editedAt == nil && original.editedAt == nil &&
-                        MeetingSummaryMarkdownCodec.encode(stored, recordingID: item.id)
-                        == MeetingSummaryMarkdownCodec.encode(original, recordingID: item.id)) else {
+                      summaryMatchesOriginal(stored, original: original) else {
                     throw SummaryError.persistenceFailed("保存済みの要約が変更されています。編集を取り消して読み直してください。")
                 }
                 guard let edited = draft.editedSummary() else { return }
@@ -540,6 +537,39 @@ final class LibraryViewModel: ObservableObject {
         } catch {
             editError = error.localizedDescription
         }
+    }
+
+    private func summaryMatchesOriginal(_ stored: MeetingSummary, original: MeetingSummary) -> Bool {
+        if stored == original {
+            return true
+        }
+
+        // Legacy Markdown assigns new item IDs on each read. Compare the actual
+        // fields, because different values can render as the same Markdown line.
+        guard stored.editedAt == nil, original.editedAt == nil,
+              stored.topics.count == original.topics.count,
+              stored.actionItems.count == original.actionItems.count else {
+            return false
+        }
+
+        let normalized = MeetingSummary(
+            summary: stored.summary,
+            topics: zip(stored.topics, original.topics).map { topic, originalTopic in
+                MeetingTopic(id: originalTopic.id, title: topic.title, detail: topic.detail, evidenceIDs: topic.evidenceIDs)
+            },
+            actionItems: zip(stored.actionItems, original.actionItems).map { item, originalItem in
+                MeetingActionItem(
+                    id: originalItem.id, title: item.title, owner: item.owner,
+                    dueDateText: item.dueDateText, evidenceIDs: item.evidenceIDs
+                )
+            },
+            transcriptSourceURL: stored.transcriptSourceURL, createdAt: stored.createdAt,
+            templateID: stored.templateID, templateName: stored.templateName,
+            inputFingerprint: stored.inputFingerprint, editedAt: stored.editedAt,
+            evidenceIDs: stored.evidenceIDs, evidenceInputFingerprint: stored.evidenceInputFingerprint
+        )
+
+        return normalized == original
     }
 
     func cancelProcessingConfirmation() {

@@ -30,6 +30,25 @@ When a Mac cannot summarize with Foundation Models, the app keeps the transcript
 
 - [Apple official transcription availability](Task/31-apple-official-transcription-availability.md)
 
+### Summary persistence
+
+Every new summary save uses schema version 1 in `<recording>_summary.md`:
+`<!-- summary-edit-format: 1 -->` after the document title and a final
+`<!-- summary-data: BASE64_JSON -->` comment containing the complete `MeetingSummary`.
+The existing marker and Codable JSON schema are retained for compatibility with
+previously saved edited summaries and summaries with evidence. JSON is the source
+of truth; the visible Markdown is generated for reading and sharing. Edit summaries
+in the app, because modifying only the visible sections does not change stored data.
+All fields, item UUIDs, timestamps, whitespace and punctuation round trip through
+the payload. Encoding and round-trip validation complete before atomic replacement;
+failures preserve the existing sidecar.
+
+Unversioned legacy Markdown remains readable and is never rewritten on load.
+It migrates only on an explicit edit save or summary regeneration. Values already
+lost by the legacy syntax cannot be reconstructed, and legacy item IDs become stable
+after that first save. Missing/corrupt payloads and unsupported version markers
+report a persistence error instead of falling back to the visible Markdown.
+
 ### Menu bar recording
 
 The menu bar shows **Recording**, **Paused**, **Stopped**, **Preparing**, **Saving**
