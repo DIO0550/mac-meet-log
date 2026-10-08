@@ -26,8 +26,11 @@ struct LibraryAudioImportService: LibraryAudioImporting {
         try Task.checkCancellation()
 
         let stem = "import-\(UUID().uuidString)"
-        let staging = directoryURL.appendingPathComponent(".\(stem)", isDirectory: true)
-        let destination = directoryURL.appendingPathComponent(stem, isDirectory: true)
+        // Directory enumeration resolves aliases such as /var → /private/var on
+        // macOS. Use the same identity immediately and after a Library reload.
+        let managedDirectory = directoryURL.resolvingSymlinksInPath().standardizedFileURL
+        let staging = managedDirectory.appendingPathComponent(".\(stem)", isDirectory: true)
+        let destination = managedDirectory.appendingPathComponent(stem, isDirectory: true)
         let fileName = "\(stem)_mix.\(audio.fileExtension)"
         let stagedAudio = staging.appendingPathComponent(fileName)
         let managedAudio = destination.appendingPathComponent(fileName)
