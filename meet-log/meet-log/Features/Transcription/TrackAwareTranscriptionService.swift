@@ -47,7 +47,7 @@ struct TrackAwareTranscriptionService: Sendable {
                     coverage: .mixdown, trackIssues: issues, mixdownFailure: nil
                 ))
             } catch {
-                try Self.propagateCancellation(error)
+                try TranscriptionCancellation.check(error)
                 guard hasTranscript else {
                     throw error
                 }
@@ -96,7 +96,7 @@ struct TrackAwareTranscriptionService: Sendable {
             }
             return .success(transcript)
         } catch {
-            try Self.propagateCancellation(error)
+            try TranscriptionCancellation.check(error)
             if error as? TranscriptionError == .emptyResult {
                 return .noSpeech
             }
@@ -106,20 +106,6 @@ struct TrackAwareTranscriptionService: Sendable {
                 return .missingSource
             }
             return .failure(error)
-        }
-    }
-
-    private nonisolated static func propagateCancellation(_ error: Error) throws {
-        try Task.checkCancellation()
-        if error is CancellationError {
-            throw CancellationError()
-        }
-        let nsError = error as NSError
-        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
-            throw CancellationError()
-        }
-        if nsError.domain == NSCocoaErrorDomain, nsError.code == NSUserCancelledError {
-            throw CancellationError()
         }
     }
 
