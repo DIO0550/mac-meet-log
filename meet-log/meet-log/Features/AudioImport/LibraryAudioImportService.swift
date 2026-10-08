@@ -26,11 +26,8 @@ struct LibraryAudioImportService: LibraryAudioImporting {
         try Task.checkCancellation()
 
         let stem = "import-\(UUID().uuidString)"
-        // Directory enumeration resolves aliases such as /var → /private/var on
-        // macOS. Use the same identity immediately and after a Library reload.
-        let managedDirectory = directoryURL.resolvingSymlinksInPath().standardizedFileURL
-        let staging = managedDirectory.appendingPathComponent(".\(stem)", isDirectory: true)
-        let destination = managedDirectory.appendingPathComponent(stem, isDirectory: true)
+        let staging = directoryURL.appendingPathComponent(".\(stem)", isDirectory: true)
+        let destination = directoryURL.appendingPathComponent(stem, isDirectory: true)
         let fileName = "\(stem)_mix.\(audio.fileExtension)"
         let stagedAudio = staging.appendingPathComponent(fileName)
         let managedAudio = destination.appendingPathComponent(fileName)
@@ -50,7 +47,10 @@ struct LibraryAudioImportService: LibraryAudioImporting {
         try Task.checkCancellation()
         try FileManager.default.moveItem(at: staging, to: destination)
 
-        return makeItem(audio, stem: stem, url: managedAudio, createdAt: createdAt)
+        // Resolve only after publishing: a new destination may not exist yet.
+        // This matches directory enumeration's /var → /private/var URL on macOS.
+        let publishedAudio = managedAudio.resolvingSymlinksInPath().standardizedFileURL
+        return makeItem(audio, stem: stem, url: publishedAudio, createdAt: createdAt)
     }
 
     private func copy(_ source: URL, to destination: URL) async throws {
