@@ -18,6 +18,120 @@ final class LibraryViewModel: ObservableObject {
         case failed(String)
     }
 
+    enum AudioImportState: Equatable {
+        case idle
+        case importing
+        case imported(RecordingLibraryItem)
+        case failed(String)
+        case cancelled
+    }
+
+    @Published private(set) var audioImportState: AudioImportState = .idle
+    @Published var isAudioImporterPresented = false
+    private let audioImporter: LibraryAudioImporting
+    private let importDirectory: () throws -> URL
+    private var audioImportTask: Task<Void, Never>?
+    private var audioImportRunID: UUID?
+    private var audioPickerActive = false
+
+    var canImportAudio: Bool {
+        audioImportState != .importing && refreshRunID == nil
+            && editDraft == nil && metadataItem == nil && trashPlan == nil
+    }
+
+    func presentAudioImporter() {
+        guard canImportAudio else {
+            return
+        }
+        audioPickerActive = true
+        isAudioImporterPresented = true
+    }
+
+    func handleAudioImporterResult(_ result: Result<URL, Error>) {
+        guard audioPickerActive else {
+            return
+        }
+        audioPickerActive = false
+        isAudioImporterPresented = false
+        switch result {
+        case let .success(url):
+            importAudio(from: url)
+        case let .failure(error):
+            if let cocoaError = error as? CocoaError, cocoaError.code == .userCancelled {
+                return
+            }
+            audioImportState = .failed(error.localizedDescription)
+        }
+    }
+
+    func cancelAudioImport() {
+        audioPickerActive = false
+        isAudioImporterPresented = false
+        guard audioImportRunID != nil else {
+            return
+        }
+        audioImportTask?.cancel()
+        audioImportTask = nil
+        audioImportRunID = nil
+        audioImportState = .cancelled
+    }
+
+    private func importAudio(from url: URL) {
+        guard canImportAudio else {
+            return
+        }
+        let directory: URL
+        do {
+            // Settings changes apply to the next import, never to an active copy.
+            directory = try importDirectory()
+        } catch {
+            audioImportState = .failed(error.localizedDescription)
+            return
+        }
+        let runID = UUID()
+        audioImportRunID = runID
+        audioImportState = .importing
+        audioImportTask = Task {
+            defer {
+                if audioImportRunID == runID {
+                    audioImportRunID = nil
+                    audioImportTask = nil
+                }
+            }
+            do {
+                let item = try await audioImporter.importAudio(from: url, to: directory)
+                try Task.checkCancellation()
+                guard audioImportRunID == runID else {
+                    return
+                }
+                registerImportedAudio(item)
+            } catch is CancellationError {
+                if audioImportRunID == runID {
+                    audioImportState = .cancelled
+                }
+            } catch {
+                if audioImportRunID == runID {
+                    audioImportState = .failed(error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func registerImportedAudio(_ item: RecordingLibraryItem) {
+        // Merge into the current list without refreshing/cancelling other recordings.
+        refreshTask?.cancel()
+        refreshTask = nil
+        refreshRunID = nil
+        cancelSummaryLoad()
+        stopPlayback()
+        searchQuery = ""
+        selectedTag = nil
+        state = .loaded([item] + items.filter { $0.id != item.id })
+        selectedRecordingID = item.id
+        audioImportState = .imported(item)
+        runProcessing(.all, template: AppSettings.shared.summaryTemplate())
+    }
+
     enum SummaryState: Equatable {
         case idle
         case loadingSaved
@@ -278,9 +392,13 @@ final class LibraryViewModel: ObservableObject {
         mixdownService: RecordingLibraryMixdownServicing = RecordingMixdownService(),
         searchService: LibrarySearchService? = nil,
         screenOCRService: ScreenOCRServicing = ScreenOCRService(),
-        trashService: LibraryTrashService = LibraryTrashService()
+        trashService: LibraryTrashService = LibraryTrashService(),
+        audioImporter: LibraryAudioImporting = LibraryAudioImportService(),
+        importDirectory: @escaping () throws -> URL = { try AppSettings.shared.resolveOutputDirectory() }
     ) {
         self.store = store
+        self.audioImporter = audioImporter
+        self.importDirectory = importDirectory
         self.trashService = trashService
         self.trackAwareTranscriptionService = TrackAwareTranscriptionService(service: transcriptionService)
         self.screenEnricher = ScreenTranscriptEnricher(service: screenOCRService)

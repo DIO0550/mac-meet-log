@@ -4,14 +4,12 @@ import DualTrackRecorder
 struct LibraryView: View {
     @ObservedObject private var settings = AppSettings.shared
     @StateObject private var viewModel: LibraryViewModel
-    @StateObject private var audioImportViewModel: AudioImportViewModel
     let recorderAction: () -> Void
 
     @MainActor
     init(recorderAction: @escaping () -> Void) {
         self.init(
             viewModel: LibraryViewModel(),
-            audioImportViewModel: { AudioImportViewModel() },
             recorderAction: recorderAction
         )
     }
@@ -19,11 +17,9 @@ struct LibraryView: View {
     @MainActor
     init(
         viewModel: @autoclosure @escaping () -> LibraryViewModel,
-        audioImportViewModel: @escaping @MainActor () -> AudioImportViewModel = { AudioImportViewModel() },
         recorderAction: @escaping () -> Void
     ) {
         _viewModel = StateObject(wrappedValue: viewModel())
-        _audioImportViewModel = StateObject(wrappedValue: audioImportViewModel())
         self.recorderAction = recorderAction
     }
 
@@ -33,6 +29,7 @@ struct LibraryView: View {
             Divider()
 
             content
+                .disabled(viewModel.audioImportState == .importing)
         }
         .frame(minWidth: 920, idealWidth: 980, minHeight: 580, idealHeight: 640)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -40,17 +37,19 @@ struct LibraryView: View {
             await viewModel.load()
         }
         .onChange(of: settings.directoryRevision) {
+            viewModel.cancelAudioImport()
             viewModel.stopPlayback()
             viewModel.refresh()
         }
         .fileImporter(
-            isPresented: $audioImportViewModel.isImporterPresented,
+            isPresented: $viewModel.isAudioImporterPresented,
             allowedContentTypes: AudioImportAllowedContentTypes.values,
             allowsMultipleSelection: false
         ) { result in
-            audioImportViewModel.handleImporterResult(firstSelectedURL(from: result))
+            viewModel.handleAudioImporterResult(firstSelectedURL(from: result))
         }
         .onDisappear {
+            viewModel.cancelAudioImport()
             viewModel.discardEdits()
             viewModel.stopPlayback()
         }
@@ -118,16 +117,17 @@ struct LibraryView: View {
 
                 Spacer(minLength: 0)
 
-                Button(action: audioImportViewModel.presentImporter) {
+                Button(action: viewModel.presentAudioImporter) {
                     Label("Import Audio", systemImage: "square.and.arrow.down")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(audioImportViewModel.state == .importing)
+                .disabled(!viewModel.canImportAudio)
 
                 Button(action: viewModel.refresh) {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.bordered)
+                .disabled(viewModel.audioImportState == .importing)
             }
 
             audioImportStatus
@@ -138,7 +138,7 @@ struct LibraryView: View {
 
     @ViewBuilder
     private var audioImportStatus: some View {
-        switch audioImportViewModel.state {
+        switch viewModel.audioImportState {
         case .idle:
             EmptyView()
         case .importing:
@@ -147,11 +147,12 @@ struct LibraryView: View {
                     .controlSize(.small)
                 Text("Importing audio...")
                     .font(.caption.weight(.medium))
+                Button("Cancel", action: viewModel.cancelAudioImport)
             }
             .foregroundStyle(.secondary)
         case let .imported(item):
             Label(
-                "\(item.fileName) is ready for transcription · \(item.durationText) · \(item.byteSizeText)",
+                "\(item.title) was copied to Library. Processing results appear below.",
                 systemImage: "checkmark.circle.fill"
             )
             .font(.caption.weight(.medium))
@@ -159,10 +160,14 @@ struct LibraryView: View {
             .lineLimit(1)
             .truncationMode(.middle)
         case let .failed(error):
-            Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
+            Label(error, systemImage: "exclamationmark.triangle.fill")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.red)
                 .lineLimit(2)
+        case .cancelled:
+            Label("Audio import cancelled.", systemImage: "stop.circle")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

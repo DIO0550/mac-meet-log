@@ -202,7 +202,9 @@ struct LibraryTrashService {
         let directories = [directory] + (recoveryOriginalDirectory(for: item).map { [$0] } ?? [])
         if scope == .screen { return directories.map { $0.appendingPathComponent("\(stem)_screen.mp4") } }
         // Exact names only: no prefix glob and no recursive deletion of a session folder.
-        let names = RecordingLibraryItem.TrackKind.allCases.map { "\(stem)_\($0.rawValue).\($0.fileExtension)" }
+        let names = RecordingLibraryItem.TrackKind.allCases.filter { $0 != .mixdown }
+            .map { "\(stem)_\($0.rawValue).\($0.fileExtension)" }
+            + RecordingLibraryItem.mixdownExtensions.map { "\(stem)_mix.\($0)" }
             + ["\(item.id)_summary.md", "\(item.id)_transcript.md", "\(stem)_notes.json"]
         var urls = directories.flatMap { directory in names.map { directory.appendingPathComponent($0) } }
         for directory in directories {
