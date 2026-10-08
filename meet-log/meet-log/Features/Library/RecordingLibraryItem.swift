@@ -173,10 +173,9 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
         fileManager: FileManager = .default,
         durationProvider: RecordingDurationProviding = AVRecordingDurationProvider()
     ) {
-        let mixdownURL = directoryURL.appendingPathComponent(
-            "\(stem)_\(TrackKind.mixdown.rawValue).m4a",
-            isDirectory: false
-        )
+        let mixdownName = Self.mixdownExtensions.map { "\(stem)_mix.\($0)" }
+            .first { directoryContents.contains($0) } ?? "\(stem)_mix.m4a"
+        let mixdownURL = directoryURL.appendingPathComponent(mixdownName, isDirectory: false)
         let systemAudioURL = Self.optionalTrackURL(
             stem: stem,
             kind: .systemAudio,
@@ -195,7 +194,7 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
             directoryURL: directoryURL,
             directoryContents: directoryContents
         )
-        let mixdownExists = directoryContents.contains("\(stem)_\(TrackKind.mixdown.rawValue).m4a")
+        let mixdownExists = directoryContents.contains(mixdownName)
             && fileManager.fileExists(atPath: mixdownURL.path)
         let systemAudioExists = systemAudioURL.map { fileManager.fileExists(atPath: $0.path) } ?? false
         let microphoneExists = microphoneURL.map { fileManager.fileExists(atPath: $0.path) } ?? false
@@ -258,6 +257,16 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
     }
 
     static func stem(fromFileName fileName: String, kind: TrackKind) -> String? {
+        if kind == .mixdown {
+            for fileExtension in mixdownExtensions {
+                let suffix = "_mix.\(fileExtension)"
+                if fileName.hasSuffix(suffix) {
+                    return String(fileName.dropLast(suffix.count))
+                }
+            }
+            return nil
+        }
+
         let suffix = "_\(kind.rawValue).\(kind.fileExtension)"
         guard fileName.hasSuffix(suffix) else {
             return nil
@@ -265,6 +274,9 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
 
         return String(fileName.dropLast(suffix.count))
     }
+
+    // Recorded mixes remain M4A. Imports preserve their validated source format.
+    static let mixdownExtensions = ["m4a", "mp3", "wav"]
 
     static func stem(fromFileName fileName: String) -> String? {
         for kind in TrackKind.allCases {

@@ -8,6 +8,24 @@ The audio processing flow accepts `mp3`, `m4a`, and `wav` files. A selected file
 
 The Apple-native path does not use external transcription APIs, external LLM APIs, Whisper, llama.cpp, or bundled third-party model weights. Transcript text is kept as the primary output, so a summary failure or unavailable Apple Intelligence state does not discard the transcript.
 
+**Library → Import Audio** validates the selected file, copies it into a unique
+session folder in the current recording destination, selects the imported meeting,
+and starts transcription and summary generation in Library. MP3, M4A and WAV keep
+their original formats; the source is never changed. Progress, cancellation,
+results, export and stage retries use the existing Library controls. Transcript
+and summary sidecars remain available after restarting the app.
+
+The import holds the selected file's security-scoped access through validation
+and copying, then releases it. All subsequent processing and playback use the
+managed copy, so removing the source does not require selecting it again. A hidden
+staging folder is published only after the copy and display metadata are complete.
+Import failure or cancellation removes staging; leaving Library or changing the
+destination cancels a pending import. Once published, the audio remains in Library
+even if transcription or summary fails or is cancelled. Use Import Audio again
+after an import failure, or retry the failed processing stage for a saved copy.
+The Recorder's separate Process Audio screen continues to process external files
+without adding them to Library.
+
 ### Runtime Requirements
 
 - macOS with Speech framework support for the selected locale.
