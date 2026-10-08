@@ -47,10 +47,7 @@ struct LibraryAudioImportService: LibraryAudioImporting {
         try Task.checkCancellation()
         try FileManager.default.moveItem(at: staging, to: destination)
 
-        // Resolve only after publishing: a new destination may not exist yet.
-        // This matches directory enumeration's /var → /private/var URL on macOS.
-        let publishedAudio = managedAudio.resolvingSymlinksInPath().standardizedFileURL
-        return makeItem(audio, stem: stem, url: publishedAudio, createdAt: createdAt)
+        return makeItem(audio, stem: stem, url: managedAudio, createdAt: createdAt)
     }
 
     private func copy(_ source: URL, to destination: URL) async throws {

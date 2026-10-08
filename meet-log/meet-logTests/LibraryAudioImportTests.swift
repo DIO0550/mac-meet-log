@@ -34,7 +34,9 @@ struct LibraryAudioImportTests {
         let restored = try #require(try await fixture.store.recordings().first)
         #expect(restored.id == item.id)
         #expect(restored.title == item.title)
-        #expect(restored.mixdownURL == item.mixdownURL)
+        // FileManager enumeration and URL standardization can spell the same
+        // macOS temporary file as /private/var/... or /var/.... Compare identity.
+        #expect(restored.mixdownURL.resolvingSymlinksInPath() == item.mixdownURL.resolvingSymlinksInPath())
         model.runProcessing(.all)
         try await waitFor { !model.isSummaryBusy }
         #expect(await services.urls == [item.mixdownURL, item.mixdownURL])
