@@ -33,12 +33,12 @@ struct TrackAwareTranscriptionService: Sendable {
             otherResult.issue(speaker: .other), meResult.issue(speaker: .me)
         ].compactMap { $0 }
         let hasTranscript = otherResult.transcript != nil || meResult.transcript != nil
-        let hasMissingSpeech = issues.contains { $0.reason != .noSpeech }
+        let hasTrackFault = issues.contains { $0.reason != .noSpeech }
         var mixdownFailure: String?
 
         // No-speech on one side is expected; processing errors/missing material
         // require a mix retry even when the other side produced useful text.
-        if let fallbackURL, hasMissingSpeech || !hasTranscript,
+        if let fallbackURL, hasTrackFault || !hasTranscript,
            fallbackURL != systemAudioURL, fallbackURL != microphoneURL {
             do {
                 let transcript = try await service.finalTranscript(audioURL: fallbackURL, locale: locale)
@@ -64,7 +64,7 @@ struct TrackAwareTranscriptionService: Sendable {
             report = nil
         } else {
             report = TranscriptionReport(
-                coverage: hasMissingSpeech ? .partial : .complete,
+                coverage: hasTrackFault ? .partial : .complete,
                 trackIssues: issues, mixdownFailure: mixdownFailure
             )
         }
@@ -74,7 +74,7 @@ struct TrackAwareTranscriptionService: Sendable {
         let sourceURL = available.sourceURL
         return Self.merge(
             other: otherResult.transcript, me: meResult.transcript,
-            sourceURL: hasMissingSpeech ? sourceURL : (fallbackURL ?? sourceURL),
+            sourceURL: hasTrackFault ? sourceURL : (fallbackURL ?? sourceURL),
             localeIdentifier: available.localeIdentifier
         ).recording(report: report)
     }
