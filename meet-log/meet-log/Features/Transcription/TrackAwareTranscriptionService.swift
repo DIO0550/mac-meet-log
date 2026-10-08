@@ -13,54 +13,121 @@ struct TrackAwareTranscriptionService: Sendable {
         fallbackURL: URL?,
         locale: Locale = Locale(identifier: "ja-JP")
     ) async throws -> TranscriptResult {
-        guard let systemAudioURL, let microphoneURL else {
-            guard let singleAudioURL = fallbackURL ?? systemAudioURL ?? microphoneURL else {
+        try Task.checkCancellation()
+        // Imported/mix-only audio has no source-track expectations.
+        if systemAudioURL == nil, microphoneURL == nil {
+            guard let fallbackURL else {
                 throw TranscriptionError.transcriptionIncomplete
             }
 
             return try await service.finalTranscript(
-                audioURL: singleAudioURL,
+                audioURL: fallbackURL,
                 locale: locale
             )
         }
 
-        let otherResult = await transcriptResult(audioURL: systemAudioURL, locale: locale)
-        let meResult = await transcriptResult(audioURL: microphoneURL, locale: locale)
+        let otherResult = try await trackResult(audioURL: systemAudioURL, locale: locale)
+        let meResult = try await trackResult(audioURL: microphoneURL, locale: locale)
+        try Task.checkCancellation()
+        let issues = [
+            otherResult.issue(speaker: .other), meResult.issue(speaker: .me)
+        ].compactMap { $0 }
+        let hasTranscript = otherResult.transcript != nil || meResult.transcript != nil
+        let hasMissingSpeech = issues.contains { $0.reason != .noSpeech }
+        var mixdownFailure: String?
 
-        switch (otherResult, meResult) {
-        case (.success(let other), .success(let me)):
-            return Self.merge(
-                other: other,
-                me: me,
-                sourceURL: fallbackURL ?? systemAudioURL
-            )
-        case (.success(let transcript), .failure),
-             (.failure, .success(let transcript)):
-            return transcript
-        case (.failure(let firstError), .failure):
-            guard let fallbackURL else {
-                throw firstError
+        // No-speech on one side is expected; processing errors/missing material
+        // require a mix retry even when the other side produced useful text.
+        if let fallbackURL, hasMissingSpeech || !hasTranscript,
+           fallbackURL != systemAudioURL, fallbackURL != microphoneURL {
+            do {
+                let transcript = try await service.finalTranscript(audioURL: fallbackURL, locale: locale)
+                try Task.checkCancellation()
+                return transcript.recording(report: TranscriptionReport(
+                    coverage: .mixdown, trackIssues: issues, mixdownFailure: nil
+                ))
+            } catch {
+                try Self.propagateCancellation(error)
+                guard hasTranscript else {
+                    throw error
+                }
+                mixdownFailure = error.localizedDescription
             }
-
-            return try await service.finalTranscript(audioURL: fallbackURL, locale: locale)
         }
+
+        guard hasTranscript else {
+            throw otherResult.error ?? meResult.error ?? TranscriptionError.emptyResult
+        }
+
+        let report: TranscriptionReport?
+        if issues.isEmpty {
+            report = nil
+        } else {
+            report = TranscriptionReport(
+                coverage: hasMissingSpeech ? .partial : .complete,
+                trackIssues: issues, mixdownFailure: mixdownFailure
+            )
+        }
+        guard let available = otherResult.transcript ?? meResult.transcript else {
+            throw TranscriptionError.transcriptionIncomplete
+        }
+        let sourceURL = available.sourceURL
+        return Self.merge(
+            other: otherResult.transcript, me: meResult.transcript,
+            sourceURL: hasMissingSpeech ? sourceURL : (fallbackURL ?? sourceURL),
+            localeIdentifier: available.localeIdentifier
+        ).recording(report: report)
     }
 
-    private nonisolated func transcriptResult(
-        audioURL: URL,
+    private nonisolated func trackResult(
+        audioURL: URL?,
         locale: Locale
-    ) async -> Result<TranscriptResult, Error> {
+    ) async throws -> TrackResult {
+        try Task.checkCancellation()
+        guard let audioURL else {
+            return .missingSource
+        }
+
         do {
-            return .success(try await service.finalTranscript(audioURL: audioURL, locale: locale))
+            let transcript = try await service.finalTranscript(audioURL: audioURL, locale: locale)
+            try Task.checkCancellation()
+            guard !transcript.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .noSpeech
+            }
+            return .success(transcript)
         } catch {
+            try Self.propagateCancellation(error)
+            if error as? TranscriptionError == .emptyResult {
+                return .noSpeech
+            }
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain,
+               [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(nsError.code) {
+                return .missingSource
+            }
             return .failure(error)
         }
     }
 
+    private nonisolated static func propagateCancellation(_ error: Error) throws {
+        try Task.checkCancellation()
+        if error is CancellationError {
+            throw CancellationError()
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            throw CancellationError()
+        }
+        if nsError.domain == NSCocoaErrorDomain, nsError.code == NSUserCancelledError {
+            throw CancellationError()
+        }
+    }
+
     private nonisolated static func merge(
-        other: TranscriptResult,
-        me: TranscriptResult,
-        sourceURL: URL
+        other: TranscriptResult?,
+        me: TranscriptResult?,
+        sourceURL: URL,
+        localeIdentifier: String
     ) -> TranscriptResult {
         let segments = (
             labeledSegments(from: other, speaker: .other)
@@ -84,16 +151,19 @@ struct TrackAwareTranscriptionService: Sendable {
 
         return TranscriptResult(
             text: text,
-            localeIdentifier: other.localeIdentifier,
+            localeIdentifier: localeIdentifier,
             sourceURL: sourceURL,
             segments: segments
         )
     }
 
     private nonisolated static func labeledSegments(
-        from transcript: TranscriptResult,
+        from transcript: TranscriptResult?,
         speaker: TranscriptSpeaker
     ) -> [TranscriptSegment] {
+        guard let transcript else {
+            return []
+        }
         guard !transcript.segments.isEmpty else {
             return [
                 TranscriptSegment(
@@ -123,6 +193,40 @@ struct TrackAwareTranscriptionService: Sendable {
             return 1
         case nil:
             return 2
+        }
+    }
+}
+
+private nonisolated enum TrackResult {
+    case success(TranscriptResult)
+    case noSpeech
+    case missingSource
+    case failure(Error)
+
+    var transcript: TranscriptResult? {
+        guard case .success(let transcript) = self else {
+            return nil
+        }
+        return transcript
+    }
+
+    var error: Error? {
+        guard case .failure(let error) = self else {
+            return nil
+        }
+        return error
+    }
+
+    func issue(speaker: TranscriptSpeaker) -> TranscriptionReport.TrackIssue? {
+        switch self {
+        case .success:
+            return nil
+        case .noSpeech:
+            return .init(speaker: speaker, reason: .noSpeech, message: nil)
+        case .missingSource:
+            return .init(speaker: speaker, reason: .missingSource, message: nil)
+        case .failure(let error):
+            return .init(speaker: speaker, reason: .processingFailed, message: error.localizedDescription)
         }
     }
 }

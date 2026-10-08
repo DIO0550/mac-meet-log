@@ -35,6 +35,7 @@ nonisolated struct TranscriptResult: Codable, Equatable, Sendable {
     let audioEditedAt: Date?
     let screenEditedAt: Date?
     let participants: [MeetingParticipant]
+    let transcriptionReport: TranscriptionReport?
 
     nonisolated init(
         text: String,
@@ -45,7 +46,8 @@ nonisolated struct TranscriptResult: Codable, Equatable, Sendable {
         screenOCRReport: ScreenOCRReport? = nil,
         audioEditedAt: Date? = nil,
         screenEditedAt: Date? = nil,
-        participants: [MeetingParticipant] = []
+        participants: [MeetingParticipant] = [],
+        transcriptionReport: TranscriptionReport? = nil
     ) {
         self.text = text
         self.localeIdentifier = localeIdentifier
@@ -56,12 +58,14 @@ nonisolated struct TranscriptResult: Codable, Equatable, Sendable {
         self.audioEditedAt = audioEditedAt
         self.screenEditedAt = screenEditedAt
         self.participants = participants
+        self.transcriptionReport = transcriptionReport
     }
 
     private enum CodingKeys: String, CodingKey {
         case text, localeIdentifier, sourceURL, segments, screenSegments, screenOCRReport
         case audioEditedAt, screenEditedAt
         case participants
+        case transcriptionReport
     }
 
     init(from decoder: Decoder) throws {
@@ -75,10 +79,12 @@ nonisolated struct TranscriptResult: Codable, Equatable, Sendable {
         audioEditedAt = try values.decodeIfPresent(Date.self, forKey: .audioEditedAt)
         screenEditedAt = try values.decodeIfPresent(Date.self, forKey: .screenEditedAt)
         participants = try values.decodeIfPresent([MeetingParticipant].self, forKey: .participants) ?? []
+        transcriptionReport = try values.decodeIfPresent(TranscriptionReport.self, forKey: .transcriptionReport)
     }
 
     var summaryInputFingerprint: String {
-        SHA256.hash(data: Data(summaryInputText.utf8))
+        let input = summaryInputText + (transcriptionReport?.summaryInstructions ?? "")
+        return SHA256.hash(data: Data(input.utf8))
             .map { String(format: "%02x", $0) }.joined()
     }
 
@@ -88,7 +94,17 @@ nonisolated struct TranscriptResult: Codable, Equatable, Sendable {
             segments: segments, screenSegments: previous?.screenSegments ?? [],
             screenOCRReport: previous?.screenOCRReport,
             audioEditedAt: audioEditedAt, screenEditedAt: previous?.screenEditedAt,
-            participants: previous?.participants ?? participants
+            participants: previous?.participants ?? participants,
+            transcriptionReport: transcriptionReport
+        )
+    }
+
+    func recording(report: TranscriptionReport?) -> TranscriptResult {
+        TranscriptResult(
+            text: text, localeIdentifier: localeIdentifier, sourceURL: sourceURL,
+            segments: segments, screenSegments: screenSegments, screenOCRReport: screenOCRReport,
+            audioEditedAt: audioEditedAt, screenEditedAt: screenEditedAt,
+            participants: participants, transcriptionReport: report
         )
     }
 

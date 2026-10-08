@@ -68,7 +68,7 @@ nonisolated struct MeetingEditDraft: Equatable, Identifiable, Sendable {
             segments: segments, screenSegments: screenSegments, screenOCRReport: value.screenOCRReport,
             audioEditedAt: audioChanged ? date : value.audioEditedAt,
             screenEditedAt: screenTexts != value.screenSegments.map(\.text) ? date : value.screenEditedAt,
-            participants: participants
+            participants: participants, transcriptionReport: value.transcriptionReport
         )
     }
 
@@ -129,7 +129,8 @@ nonisolated struct MeetingEditDraft: Equatable, Identifiable, Sendable {
             templateID: value.templateID, templateName: value.templateName,
             inputFingerprint: value.inputFingerprint, editedAt: hasChanges ? date : value.editedAt,
             evidenceIDs: text == value.summary ? value.evidenceIDs : nil,
-            evidenceInputFingerprint: value.evidenceInputFingerprint
+            evidenceInputFingerprint: value.evidenceInputFingerprint,
+            transcriptionReport: value.transcriptionReport
         )
     }
 

@@ -38,7 +38,8 @@ nonisolated enum MeetingSummaryMerger {
             templateID: summary.templateID,
             templateName: summary.templateName,
             inputFingerprint: summary.inputFingerprint, editedAt: summary.editedAt,
-            evidenceIDs: summary.evidenceIDs, evidenceInputFingerprint: summary.evidenceInputFingerprint
+            evidenceIDs: summary.evidenceIDs, evidenceInputFingerprint: summary.evidenceInputFingerprint,
+            transcriptionReport: summary.transcriptionReport
         )
     }
 

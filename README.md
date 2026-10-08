@@ -131,9 +131,25 @@ timestamped notes.
 Saved recordings with both source tracks are transcribed track by track. System
 audio is labeled **相手** and microphone audio is labeled **自分**; segments are
 merged by start time, including overlapping speech, and the labels are supplied
-to summary generation for action-item ownership. If either source track is
-missing or silent, the recording falls back to the existing single-audio
-transcription path. Imported audio files also keep the single-audio path.
+to summary generation for action-item ownership. A track with no recognized text
+(silence or other no-speech input) is recorded separately from missing material
+and processing errors; the remaining track keeps its speaker label. No recognized
+text is not proof that the recording contained no speech.
+
+Missing material or any processing error triggers a mixdown retry when a separate
+mix is available, even if the other source succeeded. A successful mix retry is
+marked as lacking source-based speaker labels. If no mix is available or the mix
+retry fails, useful source text is returned as an explicit partial transcript,
+with the missing track and error reasons. If no source text can be used, processing
+fails. Cancellation at any stage stops processing and never becomes a successful
+fallback. Mix-only/imported audio keeps its single-audio path.
+
+Coverage and retry failures are saved in both transcript and summary sidecars,
+retained through text/speaker edits and OCR updates, and displayed after reload.
+Summary prompts (including every long-meeting chunk and integration) identify
+partial coverage and prohibit inventing missing speech or owners. Markdown,
+text and PDF exports retain the warning even for summary-only exports. Audio
+regeneration replaces coverage with the new result; legacy sidecars remain readable.
 
 ### Long meeting summaries
 
