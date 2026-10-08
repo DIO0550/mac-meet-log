@@ -29,7 +29,7 @@ final class LibraryViewModel: ObservableObject {
     @Published private(set) var audioImportState: AudioImportState = .idle
     @Published var isAudioImporterPresented = false
     private let audioImporter: LibraryAudioImporting
-    private let importDirectory: () throws -> URL
+    private let importDirectory: @MainActor () throws -> URL
     private var audioImportTask: Task<Void, Never>?
     private var audioImportRunID: UUID?
     private var audioPickerActive = false
@@ -393,12 +393,12 @@ final class LibraryViewModel: ObservableObject {
         searchService: LibrarySearchService? = nil,
         screenOCRService: ScreenOCRServicing = ScreenOCRService(),
         trashService: LibraryTrashService = LibraryTrashService(),
-        audioImporter: LibraryAudioImporting = LibraryAudioImportService(),
-        importDirectory: @escaping () throws -> URL = { try AppSettings.shared.resolveOutputDirectory() }
+        audioImporter: LibraryAudioImporting? = nil,
+        importDirectory: (@MainActor () throws -> URL)? = nil
     ) {
         self.store = store
-        self.audioImporter = audioImporter
-        self.importDirectory = importDirectory
+        self.audioImporter = audioImporter ?? LibraryAudioImportService()
+        self.importDirectory = importDirectory ?? { try AppSettings.shared.resolveOutputDirectory() }
         self.trashService = trashService
         self.trackAwareTranscriptionService = TrackAwareTranscriptionService(service: transcriptionService)
         self.screenEnricher = ScreenTranscriptEnricher(service: screenOCRService)

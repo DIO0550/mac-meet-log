@@ -54,6 +54,7 @@ struct LibraryAudioImportTests {
         #expect(first.id != second.id)
         #expect(first.mixdownURL != second.mixdownURL)
         #expect(first.mixdownURL.pathExtension == fileExtension)
+        #expect(PlaybackSource(item: first).recordingURL == first.mixdownURL)
         #expect(try Data(contentsOf: first.mixdownURL) == Data(contentsOf: fixture.source))
         #expect(try await fixture.store.recordings().count == 2)
         #expect(access.starts == 2 && access.stops == 2)
@@ -62,6 +63,11 @@ struct LibraryAudioImportTests {
         #expect(plan.files.contains { $0.url == first.mixdownURL })
         #expect(!plan.files.contains { $0.url == fixture.source })
         #expect(!plan.files.contains { $0.url == second.mixdownURL })
+        let activity = LibraryActivity.begin(first.mixdownURL)
+        defer { LibraryActivity.end(activity) }
+        #expect(throws: LibraryManagementError.self) {
+            try LibraryTrashService().execute(plan)
+        }
     }
 
     @Test(arguments: [AudioImportError.emptyFile, .permissionDenied("denied"), .unsupportedFormat("txt")])
