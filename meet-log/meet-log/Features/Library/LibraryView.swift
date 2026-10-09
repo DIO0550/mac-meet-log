@@ -606,6 +606,9 @@ private struct LibraryDetailPane: View {
                         .disabled(viewModel.isSummaryBusy)
                 }
 
+                if let report = transcript.transcriptionReport {
+                    SummaryMessageRow(systemImage: "exclamationmark.triangle", message: report.warningText)
+                }
                 PlaybackTranscriptView(transcript: transcript, seek: viewModel.playback.jump)
             }
             .padding(16)
@@ -642,6 +645,9 @@ private struct LibraryDetailPane: View {
                 }
                 if let warning = viewModel.summaryInputWarning {
                     SummaryMessageRow(systemImage: "exclamationmark.triangle", message: warning)
+                }
+                if let report = summary.transcriptionReport {
+                    SummaryMessageRow(systemImage: "exclamationmark.triangle", message: report.warningText)
                 }
                 MeetingSummaryView(summary: summary, transcript: viewModel.transcript, seek: viewModel.playback.jump)
             }

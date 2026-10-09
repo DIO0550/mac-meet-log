@@ -154,13 +154,16 @@ nonisolated final class LegacySpeechTranscriptionCoordinator: @unchecked Sendabl
         continuation.finish()
     }
 
-    nonisolated private static func map(_ error: Error) -> TranscriptionError {
+    nonisolated private static func map(_ error: Error) -> Error {
+        if TranscriptionCancellation.isCancellation(error) {
+            return CancellationError()
+        }
         let message = error.localizedDescription
         if message.localizedCaseInsensitiveContains("Siri and Dictation are disabled") {
-            return .siriAndDictationDisabled
+            return TranscriptionError.siriAndDictationDisabled
         }
 
-        return .recognitionFailed(message)
+        return TranscriptionError.recognitionFailed(message)
     }
 }
 

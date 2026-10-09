@@ -32,7 +32,8 @@ struct SummaryPromptBuilder: Sendable {
 
         return .success(
             SummaryPrompt(
-                instructions: template.instructions + "\n" + speakerInstruction + screenInstruction + "\n" + Self.evidenceInstructions,
+                instructions: template.instructions + "\n" + speakerInstruction + screenInstruction + "\n" + Self.evidenceInstructions
+                    + "\n" + (transcript.transcriptionReport?.summaryInstructions ?? ""),
                 prompt: Self.prompt(
                     transcriptText: trimmedText,
                     localeIdentifier: transcript.localeIdentifier,

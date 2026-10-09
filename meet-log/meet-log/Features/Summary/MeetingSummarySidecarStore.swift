@@ -115,6 +115,10 @@ enum MeetingSummaryMarkdownCodec {
             "## Summary\n\n\(summary.summary)"
         ]
 
+        if let report = summary.transcriptionReport {
+            sections.insert("## 文字起こしの処理状況\n\n\(report.warningText)", at: 2)
+        }
+
         if !summary.topics.isEmpty {
             sections.append(
                 """
@@ -325,6 +329,9 @@ enum TranscriptMarkdownCodec {
         ]
 
         sections[1] += "\n- Source: \(transcript.sourceURL.path)"
+        if let report = transcript.transcriptionReport {
+            sections.append("## 文字起こしの処理状況\n\n\(report.warningText)")
+        }
         sections.append("## Text\n\n\(transcript.audioText)")
         if !transcript.segments.isEmpty {
             sections.append(
@@ -368,7 +375,7 @@ enum TranscriptMarkdownCodec {
                 sourceURL: transcript.sourceURL, segments: [],
                 screenSegments: transcript.screenSegments, screenOCRReport: transcript.screenOCRReport,
                 audioEditedAt: transcript.audioEditedAt, screenEditedAt: transcript.screenEditedAt,
-                participants: transcript.participants
+                participants: transcript.participants, transcriptionReport: transcript.transcriptionReport
             )
         }
 

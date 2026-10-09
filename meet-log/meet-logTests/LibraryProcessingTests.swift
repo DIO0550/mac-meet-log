@@ -4,6 +4,38 @@ import Testing
 
 @MainActor
 struct LibraryProcessingTests {
+    @Test func partialCoverageSurvivesReloadOCRResummaryAndSummaryOnlyExport() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let report = TranscriptionReport(
+            coverage: .partial,
+            trackIssues: [.init(speaker: .other, reason: .processingFailed, message: "missing words")],
+            mixdownFailure: nil
+        )
+        try await fixture.storage.save(fixture.original.recording(report: report), for: fixture.item)
+        try await fixture.storage.save(fixture.summary.recording(input: fixture.original.recording(report: report)), for: fixture.item)
+        let model = fixture.model()
+        await model.load()
+        try await settled(model)
+        #expect(model.transcript?.transcriptionReport == report)
+        #expect(model.savedSummary?.transcriptionReport == report)
+        model.runProcessing(.screenOCR)
+        try await settled(model)
+        #expect(model.transcript?.transcriptionReport == report)
+        model.runProcessing(.summary)
+        try await settled(model)
+        #expect(await fixture.services.summaryInputs.first?.transcriptionReport == report)
+        #expect(model.savedSummary?.transcriptionReport == report)
+
+        let reloaded = fixture.model()
+        await reloaded.load()
+        try await settled(reloaded)
+        #expect(reloaded.transcript?.transcriptionReport == report)
+        #expect(reloaded.savedSummary?.transcriptionReport == report)
+        let document = try #require(reloaded.exportDocumentForSelectedItem())
+        #expect(MeetingExportFormatter().markdown(for: document, sections: [.summary]).contains(report.warningText))
+    }
+
     @Test func manualSpeakerAssignmentsReachReloadSearchExportAndResummary() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }

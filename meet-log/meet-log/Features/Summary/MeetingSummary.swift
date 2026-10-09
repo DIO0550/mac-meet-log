@@ -12,6 +12,7 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
     let editedAt: Date?
     let evidenceIDs: [String]?
     let evidenceInputFingerprint: String?
+    let transcriptionReport: TranscriptionReport?
 
     nonisolated init(
         summary: String,
@@ -24,7 +25,8 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
         inputFingerprint: String? = nil,
         editedAt: Date? = nil,
         evidenceIDs: [String]? = nil,
-        evidenceInputFingerprint: String? = nil
+        evidenceInputFingerprint: String? = nil,
+        transcriptionReport: TranscriptionReport? = nil
     ) {
         self.summary = summary
         self.topics = topics
@@ -37,6 +39,7 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
         self.editedAt = editedAt
         self.evidenceIDs = evidenceIDs
         self.evidenceInputFingerprint = evidenceInputFingerprint
+        self.transcriptionReport = transcriptionReport
     }
 
     nonisolated func recording(input: TranscriptResult) -> MeetingSummary {
@@ -45,7 +48,8 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
             transcriptSourceURL: transcriptSourceURL, createdAt: createdAt,
             templateID: templateID, templateName: templateName,
             inputFingerprint: input.summaryInputFingerprint, editedAt: editedAt,
-            evidenceIDs: evidenceIDs, evidenceInputFingerprint: evidenceInputFingerprint
+            evidenceIDs: evidenceIDs, evidenceInputFingerprint: evidenceInputFingerprint,
+            transcriptionReport: input.transcriptionReport
         )
     }
 
@@ -59,7 +63,8 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
             templateID: template.id,
             templateName: template.name,
             inputFingerprint: inputFingerprint, editedAt: editedAt,
-            evidenceIDs: evidenceIDs, evidenceInputFingerprint: evidenceInputFingerprint
+            evidenceIDs: evidenceIDs, evidenceInputFingerprint: evidenceInputFingerprint,
+            transcriptionReport: transcriptionReport
         )
     }
 }

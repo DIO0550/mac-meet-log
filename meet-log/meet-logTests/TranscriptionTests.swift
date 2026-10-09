@@ -162,6 +162,23 @@ struct TranscriptionTests {
         #expect(await failureTask.value == .recognitionFailed("boom"))
     }
 
+    @Test(arguments: [0, 1, 2])
+    func recognitionCallbackPreservesCancellation(stage: Int) async throws {
+        let errors: [Error] = [
+            CancellationError(),
+            NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled),
+            NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError)
+        ]
+        let recognizer = FakeSpeechRecognizer()
+        let service = makeService(recognizer: recognizer)
+        let task = Task {
+            try await service.finalTranscript(audioURL: sampleAudioURL, locale: japaneseLocale)
+        }
+        try await waitUntil { recognizer.hasResultHandler }
+        recognizer.emit(.init(text: "", isFinal: true, error: errors[stage]))
+        await #expect(throws: CancellationError.self) { try await task.value }
+    }
+
     @Test func disabledSiriAndDictationCallbackMapsToTypedError() async throws {
         let recognizer = FakeSpeechRecognizer()
         let service = makeService(recognizer: recognizer)

@@ -68,6 +68,7 @@ nonisolated struct ChunkedSummaryPipeline: Sendable {
         let base = try promptBuilder.makePrompt(for: input).get()
         var instructions = base.instructions
         instructions += "\n" + SummaryPromptBuilder.speakerInstructions(for: source)
+        instructions += "\n" + (source.transcriptionReport?.summaryInstructions ?? "")
         if !source.screenSegments.isEmpty {
             instructions += "\n" + SummaryPromptBuilder.screenInstructions
         }

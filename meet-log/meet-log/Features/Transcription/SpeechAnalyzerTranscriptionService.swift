@@ -51,10 +51,14 @@ nonisolated final class SpeechAnalyzerTranscriptionCoordinator: @unchecked Senda
                 try await transcribeFile()
                 continuation.finish()
             } catch is CancellationError {
-                continuation.finish()
+                continuation.finish(throwing: CancellationError())
             } catch let error as TranscriptionError {
                 continuation.finish(throwing: error)
             } catch {
+                if TranscriptionCancellation.isCancellation(error) {
+                    continuation.finish(throwing: CancellationError())
+                    return
+                }
                 continuation.finish(throwing: TranscriptionError.recognitionFailed(error.localizedDescription))
             }
         }

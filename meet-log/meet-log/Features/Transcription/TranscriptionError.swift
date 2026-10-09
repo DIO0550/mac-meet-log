@@ -43,3 +43,23 @@ enum TranscriptionError: Error, Equatable, LocalizedError, Sendable {
         }
     }
 }
+
+nonisolated enum TranscriptionCancellation {
+    static func isCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled {
+            return true
+        }
+        return nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError
+    }
+
+    static func check(_ error: Error) throws {
+        try Task.checkCancellation()
+        if isCancellation(error) {
+            throw CancellationError()
+        }
+    }
+}

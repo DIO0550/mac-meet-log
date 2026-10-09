@@ -178,9 +178,15 @@ struct MeetingExportFormatter {
         ]
 
         if sections.contains(.summary), let summary = document.summary {
+            if let report = summary.transcriptionReport {
+                output.append("## 要約の処理状況\n\n\(report.warningText)")
+            }
             output.append(markdownSummary(summary))
         }
         if sections.contains(.transcript), let transcript = document.transcript {
+            if let report = transcript.transcriptionReport {
+                output.append("## 文字起こしの処理状況\n\n\(report.warningText)")
+            }
             output.append(markdownTranscript(transcript))
             if !transcript.screenSegments.isEmpty {
                 output.append("## 画面テキスト（OCR・補助情報）\n\n" + transcript.screenText)
@@ -209,9 +215,15 @@ struct MeetingExportFormatter {
         ]
 
         if sections.contains(.summary), let summary = document.summary {
+            if let report = summary.transcriptionReport {
+                output.append("要約の処理状況\n\(report.warningText)")
+            }
             output.append(plainTextSummary(summary))
         }
         if sections.contains(.transcript), let transcript = document.transcript {
+            if let report = transcript.transcriptionReport {
+                output.append("文字起こしの処理状況\n\(report.warningText)")
+            }
             output.append(plainTextTranscript(transcript))
             if !transcript.screenSegments.isEmpty {
                 output.append("画面テキスト（OCR・補助情報）\n" + transcript.screenText)
