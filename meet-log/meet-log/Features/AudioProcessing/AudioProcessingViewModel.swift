@@ -181,6 +181,9 @@ final class AudioProcessingViewModel: ObservableObject {
 
     private func formattedSummary(_ summary: MeetingSummary) -> String {
         var sections = [summary.summary]
+        if let generation = summary.generation {
+            sections.insert(generation.description, at: 0)
+        }
 
         if !summary.topics.isEmpty {
             sections.append(

@@ -167,7 +167,7 @@ extension MeetingSummary {
             templateID: templateID, templateName: templateName, inputFingerprint: inputFingerprint,
             editedAt: editedAt, evidenceIDs: checked(evidenceIDs),
             evidenceInputFingerprint: hasEvidence ? fingerprint : nil,
-            transcriptionReport: transcriptionReport
+            transcriptionReport: transcriptionReport, generation: generation
         )
     }
 }

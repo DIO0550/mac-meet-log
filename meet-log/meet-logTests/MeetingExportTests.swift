@@ -18,6 +18,40 @@ struct MeetingExportTests {
         #expect(markdown.contains("- [00:12] リスクを確認"))
     }
 
+    @Test func extractiveExportIncludesLimitationsAndFallbackReason() throws {
+        let summary = MeetingSummary(
+            summary: "冒頭の文。", topics: [], actionItems: [], transcriptSourceURL: nil,
+            generation: SummaryGeneration(method: .extractive, templateApplied: false, actionItemsExtracted: false,
+                                          fallbackReason: .appleIntelligenceDisabled)
+        )
+        let document = MeetingExportDocument(title: "簡易抽出", createdAt: .now, summary: summary, transcript: nil, notes: [])
+        let formatter = MeetingExportFormatter()
+        for text in [formatter.markdown(for: document, sections: [.summary]),
+                     formatter.plainText(for: document, sections: [.summary])] {
+            #expect(text.contains("生成方式: 簡易抽出"))
+            #expect(text.contains(SummaryUnavailableReason.appleIntelligenceDisabled.localizedDescription))
+            #expect(text.contains("テンプレートの指示は適用していません"))
+            #expect(text.contains("TODO抽出は未実施"))
+            #expect(!text.contains("テンプレート:"))
+        }
+        // PDF uses the same plain-text formatter, retaining these notices.
+        let pdf = try formatter.payload(for: document, sections: [.summary], format: .pdf)
+        #expect(String(decoding: pdf.data.prefix(4), as: UTF8.self) == "%PDF")
+        #expect(!formatter.plainText(for: document, sections: [.notes]).contains("TODO抽出は未実施"))
+    }
+
+    @Test func modelExportIdentifiesAppliedTemplateWithoutExtractiveWarnings() {
+        let summary = exportDocument().summary!.recording(template: .builtIn)
+        let document = MeetingExportDocument(title: "通常要約", createdAt: .now, summary: summary, transcript: nil, notes: [])
+        let formatter = MeetingExportFormatter()
+        for text in [formatter.markdown(for: document, sections: [.summary]),
+                     formatter.plainText(for: document, sections: [.summary])] {
+            #expect(text.contains("生成方式: Apple Foundation Models"))
+            #expect(text.contains("テンプレート: " + SummaryTemplate.builtIn.name))
+            #expect(!text.contains("TODO抽出は未実施"))
+        }
+    }
+
     @Test func plainTextExcludesUnavailableAndUnselectedSections() {
         let document = MeetingExportDocument(
             title: "文字起こしのみ",

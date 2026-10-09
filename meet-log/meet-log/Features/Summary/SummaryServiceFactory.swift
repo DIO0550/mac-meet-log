@@ -11,6 +11,11 @@ enum SummaryServiceFactory {
         }
         #endif
 
-        return ExtractiveTranscriptSummaryService()
+        return FallbackTranscriptSummaryService(
+            primary: UnavailableSummaryService(reason: .foundationModelsUnavailable(
+                "Apple Foundation Models requires macOS 26 and a compatible SDK."
+            )),
+            fallback: ExtractiveTranscriptSummaryService()
+        )
     }
 }

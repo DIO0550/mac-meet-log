@@ -746,7 +746,13 @@ private struct MeetingSummaryView: View {
     var body: some View {
         let catalog = transcript.map(SummaryEvidenceCatalog.init)
         VStack(alignment: .leading, spacing: 16) {
-            if let templateName = summary.templateName {
+            if let generation = summary.generation {
+                Text(generation.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            if summary.generation?.templateApplied != false, let templateName = summary.templateName {
                 Label(templateName, systemImage: "doc.text")
                     .font(.caption)
                     .foregroundStyle(.secondary)

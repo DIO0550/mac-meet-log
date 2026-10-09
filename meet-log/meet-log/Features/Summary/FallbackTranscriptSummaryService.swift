@@ -19,8 +19,8 @@ struct FallbackTranscriptSummaryService: TranscriptSummaryService {
         switch result {
         case .summarized, .failed:
             return result
-        case .unavailable:
-            return await fallback.summarize(transcript, progress: progress)
+        case let .unavailable(reason):
+            return recording(reason, in: await fallback.summarize(transcript, progress: progress))
         }
     }
 
@@ -33,9 +33,14 @@ struct FallbackTranscriptSummaryService: TranscriptSummaryService {
         switch result {
         case .summarized, .failed:
             return result
-        case .unavailable:
-            return await fallback.summarize(transcript, template: template, progress: progress)
+        case let .unavailable(reason):
+            return recording(reason, in: await fallback.summarize(transcript, template: template, progress: progress))
         }
+    }
+
+    nonisolated private func recording(_ reason: SummaryUnavailableReason, in result: TranscriptSummaryResult) -> TranscriptSummaryResult {
+        guard case let .summarized(summary) = result else { return result }
+        return .summarized(summary.recording(fallbackReason: reason))
     }
 }
 
@@ -75,7 +80,8 @@ struct ExtractiveTranscriptSummaryService: TranscriptSummaryService {
                 actionItems: [],
                 transcriptSourceURL: transcript.sourceURL,
                 evidenceIDs: catalog.entries.filter { $0.source == .audio && summaryText.contains($0.text) }.map(\.id),
-                evidenceInputFingerprint: catalog.fingerprint
+                evidenceInputFingerprint: catalog.fingerprint,
+                generation: SummaryGeneration(method: .extractive, templateApplied: false, actionItemsExtracted: false)
             )
         )
     }
@@ -85,11 +91,8 @@ struct ExtractiveTranscriptSummaryService: TranscriptSummaryService {
         template: SummaryTemplate,
         progress: SummaryProgressHandler
     ) async -> TranscriptSummaryResult {
-        let result = await summarize(transcript)
-        guard case let .summarized(summary) = result else {
-            return result
-        }
-        return .summarized(summary.recording(template: template))
+        // Sentence extraction does not interpret any template instructions.
+        await summarize(transcript)
     }
 
     nonisolated private static func sentences(from text: String) -> [String] {

@@ -130,7 +130,7 @@ nonisolated struct MeetingEditDraft: Equatable, Identifiable, Sendable {
             inputFingerprint: value.inputFingerprint, editedAt: hasChanges ? date : value.editedAt,
             evidenceIDs: text == value.summary ? value.evidenceIDs : nil,
             evidenceInputFingerprint: value.evidenceInputFingerprint,
-            transcriptionReport: value.transcriptionReport
+            transcriptionReport: value.transcriptionReport, generation: value.generation
         )
     }
 

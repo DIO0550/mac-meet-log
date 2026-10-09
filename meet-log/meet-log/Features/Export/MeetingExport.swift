@@ -243,6 +243,12 @@ struct MeetingExportFormatter {
 
     private func markdownSummary(_ summary: MeetingSummary) -> String {
         var parts = ["## 要約\n\n\(summary.summary)"]
+        if let generation = summary.generation {
+            parts.insert(generation.description, at: 0)
+        }
+        if summary.generation?.templateApplied != false, let name = summary.templateName {
+            parts.insert("テンプレート: \(name)", at: 0)
+        }
         if !summary.topics.isEmpty {
             parts.append(
                 """
@@ -281,6 +287,12 @@ struct MeetingExportFormatter {
 
     private func plainTextSummary(_ summary: MeetingSummary) -> String {
         var parts = ["要約\n\(summary.summary)"]
+        if let generation = summary.generation {
+            parts.insert(generation.description, at: 0)
+        }
+        if summary.generation?.templateApplied != false, let name = summary.templateName {
+            parts.insert("テンプレート: \(name)", at: 0)
+        }
         if !summary.topics.isEmpty {
             parts.append(
                 "主要トピック\n" + summary.topics.map { topic in
