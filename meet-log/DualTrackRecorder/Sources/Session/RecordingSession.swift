@@ -62,7 +62,10 @@ actor RecordingSession {
     }
 
     func startFinalizing() throws -> RecorderState {
-        try stateMachine.startFinalizing()
+        let finalizing = try stateMachine.startFinalizing()
+        // Queue draining and mixdown are saving time, not captured audio time.
+        _ = try clock.pause()
+        return finalizing
     }
 
     func complete(with result: RecordingResult) throws -> RecorderState {

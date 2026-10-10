@@ -239,6 +239,48 @@ struct TrackProcessorTests {
         #expect(harness.mixdownExporter.requestedSystemAudioURL == writer.url)
     }
 
+    @Test func recorderWriteFailureStopsCaptureAndFinalizesBeforePublishingFailure() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let harness = FakeRecorderHarness(baseURL: root)
+        let error = RecorderError.outputFailed("injected capture-time disk failure")
+        let writer = GatedTrackWriter(blockFirstWrite: false, writeError: error)
+        let capture = EmittingAudioCapture()
+        var dependencies = harness.dependencies
+        dependencies.writerFactory = { track, _ in
+            if track == .systemAudio {
+                return writer
+            }
+            return GatedTrackWriter(blockFirstWrite: false)
+        }
+        dependencies.systemAudioCaptureFactory = { handler in
+            capture.handler = handler
+            return capture
+        }
+        let recorder = DualTrackRecorder(dependencies: dependencies)
+        let failed = DispatchSemaphore(value: 0)
+        let reader = Task {
+            for await event in recorder.events {
+                if case let .stateChanged(.failed(reportedError)) = event {
+                    #expect(reportedError == error)
+                    failed.signal()
+                    return
+                }
+            }
+        }
+        defer { reader.cancel() }
+        try await recorder.start(sources: RecordingSources())
+        let buffer = try makeBuffer(value: 0.1)
+        capture.handler?(buffer, nil)
+        try #require(await waitForSignal(failed) == .success)
+        #expect(await waitForSignal(capture.stopped) == .success)
+        #expect(writer.operations == [.write(sampleData(buffer)), .close])
+        #expect(harness.microphoneCapture.stopCount == 1)
+        #expect(harness.mixdownExporter.requestedDestinationURL == nil)
+        // The recorder's own session state, as well as the UI event, is failed.
+        try await recorder.dismiss()
+    }
+
     private func makeBuffer(value: Float) throws -> AVAudioPCMBuffer {
         let format = try #require(AVAudioFormat(standardFormatWithSampleRate: 48_000, channels: 1))
         let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4))

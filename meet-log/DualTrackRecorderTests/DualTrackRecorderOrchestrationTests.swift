@@ -196,6 +196,8 @@ struct DualTrackRecorderOrchestrationTests {
         let events = await eventsTask.value
 
         #expect(events.last == Optional.some(.stateChanged(.failed(expectedError))))
+        #expect(harness.systemAudioCapture.stopCount >= 1)
+        #expect(harness.writers[.systemAudio]?.closeCount == 1)
     }
 
     @Test func startPassesSelectedMicrophoneInputToCaptureFactory() async throws {

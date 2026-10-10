@@ -71,12 +71,14 @@ A buffer larger than the byte limit or a full queue reports an output error,
 rejects further input and marks the recording incomplete. Accepted buffers drain;
 audio is not silently dropped or reported as a successful recording. A writer
 failure reports the first error once, discards the remaining queued audio, and
-still attempts to finalize the file and recovery segments. Conversion/encoder
-working memory is separate from the PCM queue limit.
+still attempts to finalize the file and recovery segments. The recorder stops
+all captures, finalizes both tracks and then publishes failure, so an error UI
+does not leave capture running. Startup failures also close their writers.
+Conversion/encoder working memory is separate from the PCM queue limit.
 
 Pause rejects input immediately and queues a writer barrier after already accepted
 audio. Resume queues its barrier before accepting new audio. Stop first stops the
-captures, closes admission, awaits queued audio and finalization, and only then
+captures, freezes active duration, closes admission, awaits queued audio and finalization, and only then
 starts mixdown. Both writers are finalized even if one fails. These barriers retain
 callback admission order and remove paused input from the active audio timeline;
 they do not introduce host-time sorting or change the existing timing model.
