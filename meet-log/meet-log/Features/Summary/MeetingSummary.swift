@@ -13,6 +13,7 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
     let evidenceIDs: [String]?
     let evidenceInputFingerprint: String?
     let transcriptionReport: TranscriptionReport?
+    let generation: SummaryGeneration?
 
     nonisolated init(
         summary: String,
@@ -26,7 +27,8 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
         editedAt: Date? = nil,
         evidenceIDs: [String]? = nil,
         evidenceInputFingerprint: String? = nil,
-        transcriptionReport: TranscriptionReport? = nil
+        transcriptionReport: TranscriptionReport? = nil,
+        generation: SummaryGeneration? = nil
     ) {
         self.summary = summary
         self.topics = topics
@@ -40,6 +42,7 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
         self.evidenceIDs = evidenceIDs
         self.evidenceInputFingerprint = evidenceInputFingerprint
         self.transcriptionReport = transcriptionReport
+        self.generation = generation
     }
 
     nonisolated func recording(input: TranscriptResult) -> MeetingSummary {
@@ -49,7 +52,7 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
             templateID: templateID, templateName: templateName,
             inputFingerprint: input.summaryInputFingerprint, editedAt: editedAt,
             evidenceIDs: evidenceIDs, evidenceInputFingerprint: evidenceInputFingerprint,
-            transcriptionReport: input.transcriptionReport
+            transcriptionReport: input.transcriptionReport, generation: generation
         )
     }
 
@@ -64,7 +67,22 @@ nonisolated struct MeetingSummary: Codable, Equatable, Sendable {
             templateName: template.name,
             inputFingerprint: inputFingerprint, editedAt: editedAt,
             evidenceIDs: evidenceIDs, evidenceInputFingerprint: evidenceInputFingerprint,
-            transcriptionReport: transcriptionReport
+            transcriptionReport: transcriptionReport,
+            generation: SummaryGeneration(method: .foundationModels, templateApplied: true, actionItemsExtracted: true)
+        )
+    }
+
+    nonisolated func recording(fallbackReason: SummaryUnavailableReason) -> MeetingSummary {
+        var metadata = generation ?? SummaryGeneration(method: .unknown, templateApplied: false, actionItemsExtracted: false)
+        metadata.fallbackReason = fallbackReason
+        return MeetingSummary(
+            summary: summary, topics: topics, actionItems: actionItems,
+            transcriptSourceURL: transcriptSourceURL, createdAt: createdAt,
+            templateID: metadata.templateApplied ? templateID : nil,
+            templateName: metadata.templateApplied ? templateName : nil,
+            inputFingerprint: inputFingerprint, editedAt: editedAt,
+            evidenceIDs: evidenceIDs, evidenceInputFingerprint: evidenceInputFingerprint,
+            transcriptionReport: transcriptionReport, generation: metadata
         )
     }
 }
@@ -105,3 +123,39 @@ nonisolated struct MeetingActionItem: Codable, Equatable, Identifiable, Sendable
     }
 }
 
+// Optional on MeetingSummary so pre-existing JSON and Markdown remain readable
+// without inferring how an old summary was generated.
+nonisolated struct SummaryGeneration: Codable, Equatable, Sendable {
+    enum Method: String, Codable, Sendable {
+        case foundationModels
+        case extractive
+        case unknown
+    }
+
+    let method: Method
+    let templateApplied: Bool
+    let actionItemsExtracted: Bool
+    var fallbackReason: SummaryUnavailableReason? = nil
+
+    var description: String {
+        var lines: [String]
+        switch method {
+        case .foundationModels:
+            lines = ["生成方式: Apple Foundation Models"]
+        case .extractive:
+            lines = ["生成方式: 簡易抽出", "文字起こしの冒頭から文を抜き出しています。"]
+        case .unknown:
+            lines = ["生成方式: 不明"]
+        }
+        if let fallbackReason {
+            lines.append("切り替え理由: \(fallbackReason.localizedDescription)")
+        }
+        if !templateApplied {
+            lines.append("テンプレートの指示は適用していません。")
+        }
+        if !actionItemsExtracted {
+            lines.append("TODO抽出は未実施です。会議にTODOがないことを意味しません。")
+        }
+        return lines.joined(separator: "\n")
+    }
+}

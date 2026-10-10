@@ -234,6 +234,27 @@ struct AudioProcessingTests {
     }
 
     @MainActor
+    @Test func extractiveResultCopyAndExportKeepFallbackLimitations() async throws {
+        let viewModel = AudioProcessingViewModel(job: AudioProcessingJob(
+            importer: FakeAudioFileImporter(result: .success(makeImportedItem())),
+            transcriptionService: FakeAudioTranscriptionService(events: [.completed(makeTranscript(text: "本文。"))]),
+            summaryService: FallbackTranscriptSummaryService(
+                primary: UnavailableSummaryService(reason: .modelNotReady),
+                fallback: ExtractiveTranscriptSummaryService()
+            )
+        ))
+        viewModel.process(audioURL: sampleURL)
+        try await waitUntil { !viewModel.isProcessing }
+        let text = try #require(viewModel.summaryText)
+        #expect(text.contains("生成方式: 簡易抽出"))
+        #expect(text.contains("TODO抽出は未実施"))
+        #expect(text.contains("テンプレートの指示は適用していません"))
+        #expect(text.contains(SummaryUnavailableReason.modelNotReady.localizedDescription))
+        #expect(viewModel.exportDocument?.summary?.generation?.fallbackReason == .modelNotReady)
+        #expect(viewModel.transcriptText == "本文。")
+    }
+
+    @MainActor
     @Test func copyHelpersOnlyExposeAvailableOutput() async throws {
         let transcript = makeTranscript(text: "本文")
         let summary = makeSummary()

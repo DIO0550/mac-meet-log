@@ -30,7 +30,7 @@ enum TranscriptSummaryResult: Equatable, Sendable {
     case failed(SummaryError)
 }
 
-enum SummaryUnavailableReason: Equatable, LocalizedError, Sendable {
+nonisolated enum SummaryUnavailableReason: Codable, Equatable, LocalizedError, Sendable {
     case foundationModelsUnavailable(String)
     case appleIntelligenceDisabled
     case deviceNotEligible

@@ -108,13 +108,16 @@ enum MeetingSummaryMarkdownCodec {
                 recordingID: recordingID,
                 createdAt: summary.createdAt,
                 transcriptSourceURL: summary.transcriptSourceURL,
-                templateID: summary.templateID,
-                templateName: summary.templateName,
+                templateID: summary.generation?.templateApplied == false ? nil : summary.templateID,
+                templateName: summary.generation?.templateApplied == false ? nil : summary.templateName,
                 inputFingerprint: summary.inputFingerprint
             ),
             "## Summary\n\n\(summary.summary)"
         ]
 
+        if let generation = summary.generation {
+            sections.insert("## 要約の生成情報\n\n\(generation.description)", at: 2)
+        }
         if let report = summary.transcriptionReport {
             sections.insert("## 文字起こしの処理状況\n\n\(report.warningText)", at: 2)
         }

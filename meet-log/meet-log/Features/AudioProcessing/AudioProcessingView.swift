@@ -425,6 +425,17 @@ private struct MeetingSummaryResultView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            if let generation = summary.generation {
+                Text(generation.description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            if summary.generation?.templateApplied != false, let name = summary.templateName {
+                Label(name, systemImage: "doc.text")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Text(summary.summary)
                 .font(.callout)
                 .textSelection(.enabled)

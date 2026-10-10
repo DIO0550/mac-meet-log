@@ -98,7 +98,7 @@ struct SummaryTests {
 
         let result = await service.summarize(transcript(text: "本文"))
 
-        #expect(result == .summarized(sampleSummary))
+        #expect(result == .summarized(sampleSummary.recording(template: .builtIn)))
     }
 
     @Test func promptedSummaryServiceMapsAvailabilityToUnavailableReason() async {
@@ -140,7 +140,7 @@ struct SummaryTests {
 
         let result = await service.summarize(transcript(text: "本文"))
 
-        #expect(result == .summarized(fallbackSummary))
+        #expect(result == .summarized(fallbackSummary.recording(fallbackReason: .appleIntelligenceDisabled)))
     }
 
     @Test func extractiveSummaryServiceSummarizesTranscriptWithoutAppleIntelligence() async throws {
@@ -157,6 +157,138 @@ struct SummaryTests {
         #expect(summary.topics.map(\.title) == ["今日は録音を確認しました", "次に保存先を直しました"])
         #expect(summary.actionItems.isEmpty)
         #expect(summary.transcriptSourceURL == URL(fileURLWithPath: "/tmp/sample.m4a"))
+    }
+
+    @Test(arguments: [
+        SummaryUnavailableReason.appleIntelligenceDisabled,
+        .deviceNotEligible, .modelNotReady, .foundationModelsUnavailable("SDK unavailable")
+    ])
+    func extractiveFallbackPersistsReasonAndDoesNotApplySelectedTemplate(reason: SummaryUnavailableReason) async throws {
+        let service = FallbackTranscriptSummaryService(
+            primary: UnavailableSummaryService(reason: reason),
+            fallback: ExtractiveTranscriptSummaryService()
+        )
+        let template = SummaryTemplate(id: "custom", name: "カスタム", instructions: "担当者とTODOを抽出", outputPerspective: "TODO", isBuiltIn: false)
+        let input = transcript(text: "明日までに実装します。")
+        let result = await service.summarize(input, template: template, progress: { _ in })
+        guard case let .summarized(value) = result else {
+            Issue.record("Expected extractive fallback")
+            return
+        }
+        let summary = value.recording(input: input)
+        #expect(summary.generation?.method == .extractive)
+        #expect(summary.generation?.fallbackReason == reason)
+        #expect(summary.generation?.templateApplied == false)
+        #expect(summary.generation?.actionItemsExtracted == false)
+        #expect(summary.templateID == nil)
+        #expect(summary.templateName == nil)
+        #expect(summary.actionItems.isEmpty)
+        let markdown = try MeetingSummaryMarkdownCodec.encode(summary, recordingID: "fallback")
+        #expect(try MeetingSummaryMarkdownCodec.decode(markdown) == summary)
+        #expect(markdown.contains("生成方式: 簡易抽出"))
+        #expect(markdown.contains(reason.localizedDescription))
+        #expect(markdown.contains("TODO抽出は未実施"))
+        #expect(!markdown.contains("- Template:"))
+        #expect(!markdown.contains("- Template ID:"))
+
+        let directory = try makeTemporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let item = libraryItem(directoryURL: directory)
+        let store = MeetingSummarySidecarStore()
+        try await store.save(summary, for: item)
+        #expect(try await store.summary(for: item) == summary)
+
+        // Processing without an explicit template must also retain the reason.
+        let defaultResult = await service.summarize(input, progress: { _ in })
+        guard case let .summarized(defaultSummary) = defaultResult else {
+            Issue.record("Expected default fallback")
+            return
+        }
+        #expect(defaultSummary.generation?.fallbackReason == reason)
+    }
+
+    @Test func directExtractionDoesNotClaimTemplateApplication() async throws {
+        let result = await ExtractiveTranscriptSummaryService().summarize(
+            transcript(text: "本文。"), template: .builtIn, progress: { _ in }
+        )
+        guard case let .summarized(summary) = result else {
+            Issue.record("Expected extraction")
+            return
+        }
+        #expect(summary.generation?.method == .extractive)
+        #expect(summary.generation?.fallbackReason == nil)
+        #expect(summary.generation?.templateApplied == false)
+        #expect(summary.templateID == nil)
+        #expect(summary.templateName == nil)
+    }
+
+    @Test func normalSummaryRecordsAppliedTemplateAndExtractionStatus() async throws {
+        let service = PromptedTranscriptSummaryService(
+            availabilityChecker: FixedSummaryAvailabilityChecker(availability: .available),
+            generator: FakeSummaryGenerator(result: .success(sampleSummary))
+        )
+        let result = await service.summarize(transcript(text: "本文"), template: .builtIn, progress: { _ in })
+        guard case let .summarized(summary) = result else {
+            Issue.record("Expected model summary")
+            return
+        }
+        #expect(summary.generation?.method == .foundationModels)
+        #expect(summary.generation?.templateApplied == true)
+        #expect(summary.generation?.actionItemsExtracted == true)
+        #expect(summary.generation?.fallbackReason == nil)
+        #expect(summary.templateID == SummaryTemplate.builtIn.id)
+        let markdown = try MeetingSummaryMarkdownCodec.encode(summary, recordingID: "model")
+        #expect(try MeetingSummaryMarkdownCodec.decode(markdown) == summary)
+        #expect(markdown.contains("生成方式: Apple Foundation Models"))
+        #expect(!markdown.contains("TODO抽出は未実施"))
+    }
+
+    @Test func oldJSONWithoutGenerationRemainsReadable() throws {
+        let data = try JSONEncoder().encode(sampleSummary)
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["generation"] == nil)
+        let decoded = try JSONDecoder().decode(MeetingSummary.self, from: data)
+        #expect(decoded == sampleSummary)
+        #expect(decoded.generation == nil)
+    }
+
+    @Test func fallbackDoesNotReplacePrimarySuccessOrFailure() async {
+        for result in [TranscriptSummaryResult.summarized(sampleSummary), .failed(.generationFailed("failure"))] {
+            let service = FallbackTranscriptSummaryService(
+                primary: FakeTranscriptSummaryService(result: result),
+                fallback: FakeTranscriptSummaryService(result: .failed(.emptyTranscript))
+            )
+            #expect(await service.summarize(transcript(text: "本文")) == result)
+            #expect(await service.summarize(transcript(text: "本文"), template: .builtIn, progress: { _ in }) == result)
+        }
+    }
+
+    @Test func fallbackFailureIsNotTurnedIntoSummary() async {
+        let service = FallbackTranscriptSummaryService(
+            primary: UnavailableSummaryService(reason: .modelNotReady),
+            fallback: FakeTranscriptSummaryService(result: .failed(.emptyTranscript))
+        )
+        #expect(await service.summarize(transcript(text: "")) == .failed(.emptyTranscript))
+    }
+
+    @Test func fallbackMetadataSurvivesEditingEvidenceFilteringAndDeduplication() throws {
+        let summary = MeetingSummary(
+            summary: "冒頭", topics: [], actionItems: [], transcriptSourceURL: nil,
+            generation: SummaryGeneration(method: .extractive, templateApplied: false, actionItemsExtracted: false,
+                                          fallbackReason: .modelNotReady)
+        ).recording(input: transcript(text: "冒頭"))
+        var draft = MeetingEditDraft(summary: summary)
+        draft.text = "編集済み"
+        draft.actionItems = [MeetingActionItem(title: "手動追加")]
+        let edited = try #require(draft.editedSummary())
+        let filtered = edited.restrictingEvidence(to: [], fingerprint: "updated")
+        let merged = MeetingSummaryMerger.removingDuplicates(filtered)
+        #expect(merged.generation == summary.generation)
+        #expect(merged.actionItems.count == 1)
+        #expect(merged.generation?.actionItemsExtracted == false)
+        #expect(try MeetingSummaryMarkdownCodec.decode(
+            MeetingSummaryMarkdownCodec.encode(merged, recordingID: "edited")
+        ) == merged)
     }
 
     @MainActor

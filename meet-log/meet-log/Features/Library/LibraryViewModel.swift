@@ -685,7 +685,7 @@ final class LibraryViewModel: ObservableObject {
             templateID: stored.templateID, templateName: stored.templateName,
             inputFingerprint: stored.inputFingerprint, editedAt: stored.editedAt,
             evidenceIDs: stored.evidenceIDs, evidenceInputFingerprint: stored.evidenceInputFingerprint,
-            transcriptionReport: stored.transcriptionReport
+            transcriptionReport: stored.transcriptionReport, generation: stored.generation
         )
 
         return normalized == original

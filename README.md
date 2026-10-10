@@ -8,6 +8,15 @@ The audio processing flow accepts `mp3`, `m4a`, and `wav` files. A selected file
 
 The Apple-native path does not use external transcription APIs, external LLM APIs, Whisper, llama.cpp, or bundled third-party model weights. Transcript text is kept as the primary output, so a summary failure or unavailable Apple Intelligence state does not discard the transcript.
 
+When Apple Foundation Models is unavailable, the app can still extract the opening
+sentences locally. This result is labeled **簡易抽出** with the fallback reason.
+It does not apply the selected template or extract TODOs: an empty action list
+therefore does not mean the meeting had no TODOs. Generation details survive
+saving, reloading and editing, and appear in Library, Process Audio, copied text
+and Markdown/text/PDF exports. Older summaries remain readable without inferring
+their generation method.
+
+
 **Library → Import Audio** validates the selected file, copies it into a unique
 session folder in the current recording destination, selects the imported meeting,
 and starts transcription and summary generation in Library. MP3, M4A and WAV keep
