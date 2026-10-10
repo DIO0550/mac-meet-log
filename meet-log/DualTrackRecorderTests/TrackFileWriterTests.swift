@@ -68,7 +68,10 @@ struct TrackFileWriterTests {
         }
 
         let expected = fortyFour + Array(sixteen.dropFirst(480)) + Array(passthrough.dropFirst(480))
-        #expect(abs(switched.count - 14_880) <= 4)
+        #expect(fortyFour.count == 5_280)
+        #expect(sixteen.count == 5_280)
+        #expect(passthrough.count == 5_280)
+        #expect(switched.count == 14_880)
         expectMatchingSamples(switched, expected)
     }
 
@@ -191,6 +194,7 @@ struct TrackFileWriterTests {
         let file = try AVAudioFile(forReading: url)
         let buffer = try #require(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)))
         try file.read(into: buffer)
+        #expect(AVAudioFramePosition(buffer.frameLength) == file.length)
         let samples = try #require(buffer.floatChannelData?[0])
         #expect(file.processingFormat.sampleRate == 48_000)
         #expect(file.processingFormat.channelCount == 1)
