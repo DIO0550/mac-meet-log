@@ -344,8 +344,9 @@ private func makeSummary() -> MeetingSummary {
 }
 
 private func waitUntil(
-    // Parallel macOS tests can occupy the main actor during framework initialization.
-    timeout: Duration = .seconds(5),
+    // Cold framework initialization in parallel macOS CI can occupy the main
+    // actor for more than five seconds before the processing task gets to run.
+    timeout: Duration = .seconds(15),
     condition: @escaping @MainActor @Sendable () -> Bool
 ) async throws {
     let deadline = ContinuousClock.now + timeout

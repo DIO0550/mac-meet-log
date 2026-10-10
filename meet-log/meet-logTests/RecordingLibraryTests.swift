@@ -489,7 +489,8 @@ private struct FixedDurationProvider: RecordingDurationProviding {
 }
 
 private func waitUntil(
-    timeout: Duration = .seconds(1),
+    // Allow cold framework initialization on the main actor during parallel CI.
+    timeout: Duration = .seconds(15),
     condition: @escaping @MainActor @Sendable () -> Bool
 ) async throws {
     let deadline = ContinuousClock.now + timeout
