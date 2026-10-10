@@ -42,7 +42,15 @@ nonisolated final class LegacySpeechTranscriptionCoordinator: @unchecked Sendabl
     private let recognizerFactory: LegacySpeechRecognizerMaking
     private let continuation: AsyncThrowingStream<TranscriptionEvent, Error>.Continuation
     private let lock = NSLock()
-    private var task: LegacySpeechRecognitionTasking?
+    private var state = State.idle
+    private var startupTask: Task<Void, Never>?
+    private var recognitionTask: LegacySpeechRecognitionTasking?
+
+    private enum State {
+        case idle
+        case running
+        case finished
+    }
 
     nonisolated init(
         audioURL: URL,
@@ -59,27 +67,54 @@ nonisolated final class LegacySpeechTranscriptionCoordinator: @unchecked Sendabl
     }
 
     nonisolated func start() {
-        Task {
+        lock.lock()
+        guard state == .idle else {
+            lock.unlock()
+            return
+        }
+
+        state = .running
+        startupTask = Task {
+            defer { clearStartupTask() }
+
             do {
+                try checkCancellation()
                 try await authorize()
                 try startRecognition()
             } catch {
-                continuation.finish(throwing: error)
+                finish(throwing: error)
             }
         }
+        lock.unlock()
     }
 
     nonisolated func cancel() {
+        finish(throwing: CancellationError())
+    }
+
+    nonisolated private func clearStartupTask() {
         lock.lock()
-        let task = task
-        self.task = nil
+        startupTask = nil
+        lock.unlock()
+    }
+
+    nonisolated private func checkCancellation() throws {
+        try Task.checkCancellation()
+
+        lock.lock()
+        let isRunning = state == .running
         lock.unlock()
 
-        task?.cancel()
+        guard isRunning else {
+            throw CancellationError()
+        }
     }
 
     nonisolated private func authorize() async throws {
-        switch await authorizationProvider.authorizationStatusAfterRequest() {
+        let status = await authorizationProvider.authorizationStatusAfterRequest()
+        try checkCancellation()
+
+        switch status {
         case .authorized:
             return
         case .denied:
@@ -92,6 +127,8 @@ nonisolated final class LegacySpeechTranscriptionCoordinator: @unchecked Sendabl
     }
 
     nonisolated private func startRecognition() throws {
+        try checkCancellation()
+
         let localeIdentifier = locale.identifier
         guard let recognizer = recognizerFactory.recognizer(locale: locale) else {
             throw TranscriptionError.recognizerUnsupportedForLocale(localeIdentifier: localeIdentifier)
@@ -110,6 +147,9 @@ nonisolated final class LegacySpeechTranscriptionCoordinator: @unchecked Sendabl
             shouldReportPartialResults: true,
             addsPunctuation: true
         )
+        try checkCancellation()
+
+        // Recognition can call back synchronously, so create it outside the lock.
         let recognitionTask = recognizer.recognitionTask(
             audioURL: audioURL,
             configuration: configuration
@@ -118,18 +158,32 @@ nonisolated final class LegacySpeechTranscriptionCoordinator: @unchecked Sendabl
         }
 
         lock.lock()
-        task = recognitionTask
+        guard state == .running else {
+            lock.unlock()
+            recognitionTask.cancel()
+            return
+        }
+
+        self.recognitionTask = recognitionTask
         lock.unlock()
     }
 
     nonisolated private func handle(_ callback: LegacySpeechRecognitionCallback) {
         if let error = callback.error {
-            continuation.finish(throwing: Self.map(error))
+            finish(throwing: Self.map(error))
             return
         }
 
         let text = callback.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard callback.isFinal else {
+            lock.lock()
+            let isRunning = state == .running
+            lock.unlock()
+
+            guard isRunning else {
+                return
+            }
+
             if !text.isEmpty {
                 continuation.yield(.partial(text))
             }
@@ -137,12 +191,12 @@ nonisolated final class LegacySpeechTranscriptionCoordinator: @unchecked Sendabl
         }
 
         guard !text.isEmpty else {
-            continuation.finish(throwing: TranscriptionError.emptyResult)
+            finish(throwing: TranscriptionError.emptyResult)
             return
         }
 
-        continuation.yield(
-            .completed(
+        finish(
+            with: .completed(
                 TranscriptResult(
                     text: text,
                     localeIdentifier: locale.identifier,
@@ -151,7 +205,32 @@ nonisolated final class LegacySpeechTranscriptionCoordinator: @unchecked Sendabl
                 )
             )
         )
-        continuation.finish()
+    }
+
+    nonisolated private func finish(
+        with event: TranscriptionEvent? = nil,
+        throwing error: Error? = nil
+    ) {
+        lock.lock()
+        guard state != .finished else {
+            lock.unlock()
+            return
+        }
+
+        state = .finished
+        let startupTask = startupTask
+        let recognitionTask = recognitionTask
+        self.startupTask = nil
+        self.recognitionTask = nil
+        lock.unlock()
+
+        // finish invokes onTermination; cancellation can also call back synchronously.
+        if let event {
+            continuation.yield(event)
+        }
+        continuation.finish(throwing: error)
+        startupTask?.cancel()
+        recognitionTask?.cancel()
     }
 
     nonisolated private static func map(_ error: Error) -> Error {
