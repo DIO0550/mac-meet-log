@@ -92,7 +92,7 @@ nonisolated final class SpeechAnalyzerTranscriptionCoordinator: @unchecked Senda
 
         let audioFile = try AVAudioFile(forReading: audioURL)
         let analyzer = SpeechAnalyzer(modules: [transcriber])
-        async let result = collectResults(from: transcriber)
+        async let result = collectResults(from: transcriber, localeIdentifier: supportedLocale.identifier)
 
         do {
             if let lastSampleTime = try await analyzer.analyzeSequence(from: audioFile) {
@@ -106,15 +106,7 @@ nonisolated final class SpeechAnalyzerTranscriptionCoordinator: @unchecked Senda
         }
 
         let transcript = try await result
-        continuation.yield(
-            .completed(
-                TranscriptResult(
-                    text: transcript,
-                    localeIdentifier: supportedLocale.identifier,
-                    sourceURL: audioURL
-                )
-            )
-        )
+        continuation.yield(.completed(transcript))
     }
 
     private func installAssets(
@@ -135,36 +127,23 @@ nonisolated final class SpeechAnalyzerTranscriptionCoordinator: @unchecked Senda
         }
     }
 
-    private func collectResults(from transcriber: SpeechTranscriber) async throws -> String {
-        var finalizedText = ""
+    private func collectResults(
+        from transcriber: SpeechTranscriber,
+        localeIdentifier: String
+    ) async throws -> TranscriptResult {
+        var accumulator = SpeechAnalyzerResultAccumulator()
 
         for try await result in transcriber.results {
-            let text = String(result.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else {
-                continue
+            if let event = try accumulator.consume(
+                text: String(result.text.characters),
+                range: result.range,
+                isFinal: result.isFinal
+            ) {
+                continuation.yield(event)
             }
-
-            if result.isFinal {
-                finalizedText = append(text, to: finalizedText)
-                continue
-            }
-
-            continuation.yield(.partial(text))
         }
 
-        guard !finalizedText.isEmpty else {
-            throw TranscriptionError.emptyResult
-        }
-
-        return finalizedText
-    }
-
-    private func append(_ text: String, to finalizedText: String) -> String {
-        guard !finalizedText.isEmpty else {
-            return text
-        }
-
-        return "\(finalizedText)\n\(text)"
+        return try accumulator.transcript(localeIdentifier: localeIdentifier, sourceURL: audioURL)
     }
 }
 #endif

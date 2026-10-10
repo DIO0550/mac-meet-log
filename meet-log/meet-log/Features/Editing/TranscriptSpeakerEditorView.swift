@@ -21,6 +21,8 @@ struct TranscriptSpeakerEditorView: View {
             }
 
             if !original.segments.isEmpty {
+                Text("話者名は手動で割り当てます。認識結果の区間は話者の境界とは限りません。複数人の発言が1区間にまとまる場合、その区間内で別々の話者名を割り当てることはできません。")
+                    .font(.caption).foregroundStyle(.secondary)
                 bulkAssignmentFields
             }
 
