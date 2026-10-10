@@ -57,6 +57,39 @@ When a Mac cannot summarize with Foundation Models, the app keeps the transcript
 
 - [Apple official transcription availability](Task/31-apple-official-transcription-availability.md)
 
+### Audio callback processing
+
+Microphone and system-audio callbacks copy active PCM frames into owned memory
+and enqueue them. AAC conversion, track/recovery-file writes and level/waveform
+calculation run on one serial queue per track. The callback does not retain the
+system tap's `bufferListNoCopy` memory or wait for a writer to finish. Admission
+uses a short lock shared with controls; this is not a lock-free real-time pipeline.
+
+Each track admits at most **64 audio/control operations and 8 MiB of PCM**,
+including its in-flight write. Pause/resume controls share the operation limit.
+A buffer larger than the byte limit or a full queue reports an output error,
+rejects further input and marks the recording incomplete. Accepted buffers drain;
+audio is not silently dropped or reported as a successful recording. A writer
+failure reports the first error once, discards the remaining queued audio, and
+still attempts to finalize the file and recovery segments. Conversion/encoder
+working memory is separate from the PCM queue limit.
+
+Pause rejects input immediately and queues a writer barrier after already accepted
+audio. Resume queues its barrier before accepting new audio. Stop first stops the
+captures, closes admission, awaits queued audio and finalization, and only then
+starts mixdown. Both writers are finalized even if one fails. These barriers retain
+callback admission order and remove paused input from the active audio timeline;
+they do not introduce host-time sorting or change the existing timing model.
+
+`TrackProcessorTests` uses a blocked writer to check callback/control independence,
+borrowed interleaved/noninterleaved PCM ownership, count/byte limits, pause/resume
+ordering, error propagation, concurrent callbacks and stop-before-mixdown draining.
+Physical-Mac validation remains pending: record to an external destination under
+disk load, measure callback durations (p50/p95/max), PCM queue peak and resident
+memory, and listen/count missing frames around repeated pauses and stops. Record
+the Mac, macOS, input/output device formats, destination and recording length with
+the results; synthetic CI tests do not establish real-device latency or dropouts.
+
 ### Summary persistence
 
 Every new summary save uses schema version 1 in `<recording>_summary.md`:

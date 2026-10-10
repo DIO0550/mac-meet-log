@@ -164,7 +164,7 @@ public actor DualTrackRecorder {
             if let error = screenCaptureOutcome.error {
                 eventContinuation.yield(.screenCaptureUnavailable(error))
             }
-            let trackURLs = try activeCaptureSession.closeWriters()
+            let trackURLs = try await activeCaptureSession.closeWriters()
             let mixdown: RecordingMixdownOutcome
 
             do {
@@ -410,10 +410,31 @@ private final class ActiveCaptureSession {
         screenCapture?.resume()
     }
 
-    func closeWriters() throws -> (systemAudioURL: URL?, microphoneURL: URL?) {
-        let systemAudioURL = try processors[.systemAudio]?.close()
-        let microphoneURL = try processors[.microphone]?.close()
-        return (systemAudioURL, microphoneURL)
+    func closeWriters() async throws -> (systemAudioURL: URL?, microphoneURL: URL?) {
+        var urls: [RecordingTrack: URL] = [:]
+        var firstError: Error?
+
+        // A failing track must not prevent the other track from draining and
+        // finalizing. Capture has already stopped before these barriers run.
+        for track in [RecordingTrack.systemAudio, .microphone] {
+            guard let processor = processors[track] else {
+                continue
+            }
+
+            do {
+                urls[track] = try await processor.close()
+            } catch {
+                if firstError == nil {
+                    firstError = error
+                }
+            }
+        }
+
+        if let firstError {
+            throw firstError
+        }
+
+        return (urls[.systemAudio], urls[.microphone])
     }
 
     func switchMicrophoneCapture(
