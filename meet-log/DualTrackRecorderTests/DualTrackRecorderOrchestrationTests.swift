@@ -3,6 +3,24 @@ import Testing
 @testable import DualTrackRecorder
 
 struct DualTrackRecorderOrchestrationTests {
+    @Test func trackFinalizationFailureStillClosesTheOtherTrack() async throws {
+        let baseURL = temporaryOutputURL()
+        defer { try? FileManager.default.removeItem(at: baseURL) }
+        let harness = FakeRecorderHarness(baseURL: baseURL)
+        let recorder = DualTrackRecorder(configuration: configuration(), dependencies: harness.dependencies)
+        try await recorder.start(sources: RecordingSources())
+        let expectedError = RecorderError.outputFailed("system track could not finalize")
+        harness.writers[.systemAudio]?.closeError = expectedError
+
+        await #expect(throws: expectedError) {
+            try await recorder.stop()
+        }
+
+        #expect(harness.writers[.systemAudio]?.closeCount == 1)
+        #expect(harness.writers[.microphone]?.closeCount == 1)
+        #expect(harness.mixdownExporter.requestedDestinationURL == nil)
+    }
+
     @Test func emergencyStopClosesTracksAndScreenWithoutCreatingMixdown() async throws {
         let baseURL = temporaryOutputURL()
         defer { try? FileManager.default.removeItem(at: baseURL) }
@@ -178,6 +196,8 @@ struct DualTrackRecorderOrchestrationTests {
         let events = await eventsTask.value
 
         #expect(events.last == Optional.some(.stateChanged(.failed(expectedError))))
+        #expect(harness.systemAudioCapture.stopCount >= 1)
+        #expect(harness.writers[.systemAudio]?.closeCount == 1)
     }
 
     @Test func startPassesSelectedMicrophoneInputToCaptureFactory() async throws {

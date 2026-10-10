@@ -11,6 +11,8 @@ public actor DualTrackRecorder {
     private var journalDirectory: URL?
     private var checkpointTask: Task<Void, Never>?
     private var sessionLease: RecordingSessionLease?
+    private var captureStartInProgress = false
+    private var captureFailureDuringStart: RecorderError?
 
     public var currentSessionDirectory: URL? { journalDirectory }
 
@@ -46,6 +48,9 @@ public actor DualTrackRecorder {
         journal = nil
         journalDirectory = nil
         sessionLease = nil
+        captureStartInProgress = true
+        captureFailureDuringStart = nil
+        defer { captureStartInProgress = false }
 
         do {
             activeCaptureSession = try await makeCaptureSession(
@@ -57,6 +62,9 @@ public actor DualTrackRecorder {
             if let screenCaptureError = try await activeCaptureSession?.start() {
                 eventContinuation.yield(.screenCaptureUnavailable(screenCaptureError))
             }
+            if let error = captureFailureDuringStart ?? activeCaptureSession?.failure {
+                throw error
+            }
             checkpointTask = Task { [weak self] in
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .seconds(1)) } catch { return }
@@ -64,7 +72,10 @@ public actor DualTrackRecorder {
                 }
             }
         } catch {
-            activeCaptureSession?.stopImmediately()
+            if let activeCaptureSession {
+                _ = await activeCaptureSession.stop()
+                _ = try? await activeCaptureSession.closeWriters()
+            }
             activeCaptureSession = nil
             sessionLease = nil
             let recorderError = normalize(error, fallback: "Could not start recording.")
@@ -164,7 +175,7 @@ public actor DualTrackRecorder {
             if let error = screenCaptureOutcome.error {
                 eventContinuation.yield(.screenCaptureUnavailable(error))
             }
-            let trackURLs = try activeCaptureSession.closeWriters()
+            let trackURLs = try await activeCaptureSession.closeWriters()
             let mixdown: RecordingMixdownOutcome
 
             do {
@@ -222,7 +233,12 @@ public actor DualTrackRecorder {
         var microphoneCapture: (any AudioCapture)?
         var screenCapture: (any ScreenCapturing)?
         var screenCapturePreparationError: RecorderError?
-        let eventHandler: @Sendable (RecorderEvent) -> Void = { [eventContinuation] event in
+        let sessionDirectory = outputFileSet.sessionDirectoryURL
+        let eventHandler: @Sendable (RecorderEvent) -> Void = { [weak self, eventContinuation] event in
+            if case let .stateChanged(.failed(error)) = event {
+                Task { await self?.handleTrackFailure(error, in: sessionDirectory) }
+                return
+            }
             eventContinuation.yield(event)
         }
 
@@ -266,6 +282,35 @@ public actor DualTrackRecorder {
             processors: processors,
             outputFileSet: outputFileSet
         )
+    }
+
+    private func handleTrackFailure(_ error: RecorderError, in directory: URL) async {
+        guard journalDirectory == directory else {
+            return
+        }
+
+        if captureStartInProgress {
+            if captureFailureDuringStart == nil {
+                captureFailureDuringStart = error
+            }
+            return
+        }
+
+        let state = await session.state
+        guard journalDirectory == directory else {
+            return
+        }
+        switch state {
+        case .recording, .paused:
+            do {
+                _ = try await stop(createMixdown: false)
+            } catch {
+                // stop publishes failure only after all captures and writers
+                // are finished. A concurrent stop already owns finalization.
+            }
+        default:
+            return
+        }
     }
 
     private func checkpoint(phase: RecordingJournal.Phase? = nil) async {
@@ -344,6 +389,10 @@ private final class ActiveCaptureSession {
     private var screenCapture: (any ScreenCapturing)?
     private let screenCapturePreparationError: RecorderError?
 
+    var failure: RecorderError? {
+        processors.values.compactMap { $0.failure }.first
+    }
+
     init(
         systemAudioCaptures: [any AudioCapture],
         microphoneCapture: (any AudioCapture)?,
@@ -410,10 +459,31 @@ private final class ActiveCaptureSession {
         screenCapture?.resume()
     }
 
-    func closeWriters() throws -> (systemAudioURL: URL?, microphoneURL: URL?) {
-        let systemAudioURL = try processors[.systemAudio]?.close()
-        let microphoneURL = try processors[.microphone]?.close()
-        return (systemAudioURL, microphoneURL)
+    func closeWriters() async throws -> (systemAudioURL: URL?, microphoneURL: URL?) {
+        var urls: [RecordingTrack: URL] = [:]
+        var firstError: Error?
+
+        // A failing track must not prevent the other track from draining and
+        // finalizing. Capture has already stopped before these barriers run.
+        for track in [RecordingTrack.systemAudio, .microphone] {
+            guard let processor = processors[track] else {
+                continue
+            }
+
+            do {
+                urls[track] = try await processor.close()
+            } catch {
+                if firstError == nil {
+                    firstError = error
+                }
+            }
+        }
+
+        if let firstError {
+            throw firstError
+        }
+
+        return (urls[.systemAudio], urls[.microphone])
     }
 
     func switchMicrophoneCapture(
