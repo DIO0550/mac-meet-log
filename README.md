@@ -172,6 +172,28 @@ timestamped notes.
 
 ### Speaker-labeled transcripts
 
+On macOS 26 and later, SpeechAnalyzer saves each nonempty finalized recognition
+result as one transcript segment using `SpeechTranscriber.Result.range` for its
+start and duration. These audio ranges are retained for single-file imports as
+well as source tracks, and are used by chronological merging, Library playback,
+summary evidence and manual participant assignment. Volatile results are preview
+only; they are never persisted or concatenated into the final text. Apple's final
+results do not replace earlier final results; repeated delivery of the same range
+is ignored. Repeated text at different ranges remains separate. Invalid final
+timing reports a recognition failure rather than inventing a zero-time segment.
+
+Recognition ranges are phrases or passages, not detected speaker turns. Register
+participants and assign names manually in the transcript editor. If Apple groups
+several people's speech into one result, that whole segment can have only one
+assigned name. Manual segment splitting is not currently available. The app does
+not infer participant identity or split segments at punctuation, words or speaker
+changes. The **自分／相手** labels describe input tracks. Legacy Speech segmentation
+is unchanged; existing sidecars without segments stay readable and are not
+automatically given reconstructed timings.
+
+API references: [SpeechTranscriber.Result](https://developer.apple.com/documentation/speech/speechtranscriber/result)
+and [SpeechAnalyzer result finalization](https://developer.apple.com/videos/play/wwdc2025/277/).
+
 Saved recordings with both source tracks are transcribed track by track. System
 audio is labeled **相手** and microphone audio is labeled **自分**; segments are
 merged by start time, including overlapping speech, and the labels are supplied
