@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import meet_log
 
+@MainActor
 struct LegacySpeechCancellationTests {
     @Test(arguments: [LegacySpeechAuthorizationStatus.authorized, .denied])
     func consumerCancellationDuringAuthorizationPreventsRecognition(
@@ -390,7 +391,7 @@ private final class ControlledSpeechRecognizer: LegacySpeechRecognizing, @unchec
     }
 
     func emit(_ callback: LegacySpeechRecognitionCallback) {
-        let handler = lock.withLock { handler }
+        let handler = lock.withLock { self.handler }
         handler?(callback)
     }
 }
