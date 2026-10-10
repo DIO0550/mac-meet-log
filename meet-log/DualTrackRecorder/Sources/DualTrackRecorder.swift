@@ -74,7 +74,7 @@ public actor DualTrackRecorder {
         } catch {
             if let activeCaptureSession {
                 _ = await activeCaptureSession.stop()
-                try? await activeCaptureSession.closeWriters()
+                _ = try? await activeCaptureSession.closeWriters()
             }
             activeCaptureSession = nil
             sessionLease = nil
