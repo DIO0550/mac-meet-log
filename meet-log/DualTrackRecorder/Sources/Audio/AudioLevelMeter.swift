@@ -12,7 +12,9 @@ struct AudioLevelMeter {
     }
 
     mutating func events(for buffer: AVAudioPCMBuffer, track: RecordingTrack, at date: Date = Date()) -> [RecorderEvent] {
-        guard buffer.frameLength > 0 else { return [] }
+        guard buffer.frameLength > 0 else {
+            return []
+        }
         guard shouldEmit(at: date) else {
             return []
         }
@@ -26,12 +28,15 @@ struct AudioLevelMeter {
         ]
     }
 
+    // Float32 PCM is supported in both layouts. Empty or unsupported buffers
+    // preserve the zero-metrics fallback; sample conversion belongs upstream.
     static func metrics(from buffer: AVAudioPCMBuffer, waveformSampleCount: Int = 48) -> (
         peak: Float,
         rms: Float,
         waveform: [Float]
     ) {
         guard
+            buffer.format.commonFormat == .pcmFormatFloat32,
             let channelData = buffer.floatChannelData,
             buffer.frameLength > 0,
             buffer.format.channelCount > 0
@@ -41,6 +46,7 @@ struct AudioLevelMeter {
 
         let channelCount = Int(buffer.format.channelCount)
         let frameCount = Int(buffer.frameLength)
+        let sampleStride = buffer.stride
         var peak: Float = 0
         var sumOfSquares: Float = 0
         var monoSamples = Array(repeating: Float.zero, count: frameCount)
@@ -49,7 +55,7 @@ struct AudioLevelMeter {
             let samples = channelData[channel]
 
             for frame in 0..<frameCount {
-                let sample = samples[frame]
+                let sample = samples[frame * sampleStride]
                 let absoluteSample = abs(sample)
                 peak = max(peak, absoluteSample)
                 sumOfSquares += sample * sample
