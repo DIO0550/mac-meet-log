@@ -17,20 +17,20 @@ struct TrackProcessorTests {
         let returned = DispatchSemaphore(value: 0)
 
         // A synchronous writer would leave this callback blocked at write().
-        DispatchQueue.global().async {
-            processor.append(first, time: nil)
+        DispatchQueue.global().async { [first = CallbackBuffer(first)] in
+            processor.append(first.buffer, time: nil)
             returned.signal()
         }
         #expect(await waitForSignal(returned) == .success)
         #expect(await waitForSignal(writer.started) == .success)
         #expect(events.snapshot.isEmpty)
 
-        DispatchQueue.global().async {
-            processor.append(second, time: AVAudioTime(hostTime: 2))
+        DispatchQueue.global().async { [second = CallbackBuffer(second), paused = CallbackBuffer(paused), resumed = CallbackBuffer(resumed)] in
+            processor.append(second.buffer, time: AVAudioTime(hostTime: 2))
             processor.pause()
-            processor.append(paused, time: AVAudioTime(hostTime: 3))
+            processor.append(paused.buffer, time: AVAudioTime(hostTime: 3))
             processor.resume()
-            processor.append(resumed, time: AVAudioTime(hostTime: 4))
+            processor.append(resumed.buffer, time: AVAudioTime(hostTime: 4))
             returned.signal()
         }
         #expect(await waitForSignal(returned) == .success)
@@ -77,8 +77,8 @@ struct TrackProcessorTests {
         let expected = sampleData(borrowed)
         let returned = DispatchSemaphore(value: 0)
 
-        DispatchQueue.global().async {
-            processor.append(borrowed, time: nil)
+        DispatchQueue.global().async { [borrowed = CallbackBuffer(borrowed)] in
+            processor.append(borrowed.buffer, time: nil)
             returned.signal()
         }
         #expect(await waitForSignal(returned) == .success)
@@ -199,8 +199,8 @@ struct TrackProcessorTests {
             track: .microphone, writer: writer, maximumPendingOperations: 200, eventHandler: { _ in }
         )
         let buffer = try makeBuffer(value: 0.1)
-        DispatchQueue.concurrentPerform(iterations: 100) { _ in
-            processor.append(buffer, time: nil)
+        DispatchQueue.concurrentPerform(iterations: 100) { [buffer = CallbackBuffer(buffer)] _ in
+            processor.append(buffer.buffer, time: nil)
         }
         _ = try await processor.close()
         #expect(writer.operations.count == 101)
@@ -290,6 +290,16 @@ struct TrackProcessorTests {
             data[frame] = value
         }
         return buffer
+    }
+}
+
+// Callback fixtures are read-only while dispatched. The borrowed-memory test
+// waits for append to return before mutating the original storage.
+private struct CallbackBuffer: @unchecked Sendable {
+    let buffer: AVAudioPCMBuffer
+
+    init(_ buffer: AVAudioPCMBuffer) {
+        self.buffer = buffer
     }
 }
 
