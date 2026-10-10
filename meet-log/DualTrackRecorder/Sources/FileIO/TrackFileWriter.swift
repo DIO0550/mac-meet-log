@@ -17,8 +17,6 @@ final class TrackFileWriter: TrackWriting {
     private let audioFileFactory: (URL, AVAudioFormat) throws -> AVAudioFile
     private var converter: AVAudioConverter?
     private var conversionBuffer: AVAudioPCMBuffer?
-    private var conversionInputFrames: AVAudioFramePosition = 0
-    private var conversionOutputFrames: AVAudioFramePosition = 0
 
     init(
         url: URL,
@@ -180,8 +178,6 @@ final class TrackFileWriter: TrackWriting {
         }
 
         self.converter = converter
-        conversionInputFrames = 0
-        conversionOutputFrames = 0
     }
 
     private func drainConverter(to file: AVAudioFile) throws {
@@ -200,10 +196,6 @@ final class TrackFileWriter: TrackWriting {
     ) throws {
         guard let output = conversionBuffer else {
             throw RecorderError.outputFailed("Missing converted audio buffer.")
-        }
-
-        if let input {
-            conversionInputFrames += AVAudioFramePosition(input.frameLength)
         }
 
         // This flag spans all output chunks: each input is supplied exactly once.
@@ -239,16 +231,16 @@ final class TrackFileWriter: TrackWriting {
                     throw RecorderError.outputFailed("Audio conversion made no progress.")
                 }
 
-                try writeConvertedOutput(output, using: converter, to: file)
+                try writeOutput(output, to: file)
             case .inputRanDry:
-                try writeConvertedOutput(output, using: converter, to: file)
+                try writeOutput(output, to: file)
                 guard input != nil else {
                     throw RecorderError.outputFailed("Audio conversion did not finish draining.")
                 }
 
                 return
             case .endOfStream:
-                try writeConvertedOutput(output, using: converter, to: file)
+                try writeOutput(output, to: file)
                 guard input == nil else {
                     throw RecorderError.outputFailed("Audio conversion ended before the input stream closed.")
                 }
@@ -260,22 +252,6 @@ final class TrackFileWriter: TrackWriting {
                 throw RecorderError.outputFailed("Unknown audio conversion status.")
             }
         }
-    }
-
-    private func writeConvertedOutput(
-        _ buffer: AVAudioPCMBuffer,
-        using converter: AVAudioConverter,
-        to file: AVAudioFile
-    ) throws {
-        // A resampler may return padded frames when ending a short stream.
-        // Drain its state fully, but keep the track's duration tied to the
-        // cumulative real input rather than the converter's output chunk size.
-        let ratio = converter.outputFormat.sampleRate / converter.inputFormat.sampleRate
-        let expectedFrames = AVAudioFramePosition((Double(conversionInputFrames) * ratio).rounded(.up))
-        let remainingFrames = max(0, expectedFrames - conversionOutputFrames)
-        buffer.frameLength = AVAudioFrameCount(min(AVAudioFramePosition(buffer.frameLength), remainingFrames))
-        try writeOutput(buffer, to: file)
-        conversionOutputFrames += AVAudioFramePosition(buffer.frameLength)
     }
 
     private func writeOutput(_ buffer: AVAudioPCMBuffer, to file: AVAudioFile) throws {

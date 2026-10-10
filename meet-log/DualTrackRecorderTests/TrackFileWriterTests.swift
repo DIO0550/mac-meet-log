@@ -27,7 +27,7 @@ struct TrackFileWriterTests {
     }
 
     @Test(arguments: [44_100.0, 16_000.0], [31, 53, 97, 4_410])
-    func shortConvertedStreamsDoNotAddPaddingToTheTrack(sampleRate: Double, chunkSize: Int) throws {
+    func shortConvertedStreamsPreserveDuration(sampleRate: Double, chunkSize: Int) throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         let frames = Int(sampleRate / 10)
@@ -192,13 +192,20 @@ struct TrackFileWriterTests {
         try write(writer)
         _ = try writer.close()
         let file = try AVAudioFile(forReading: url)
-        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(file.length)))
-        try file.read(into: buffer)
-        #expect(AVAudioFramePosition(buffer.frameLength) == file.length)
-        let samples = try #require(buffer.floatChannelData?[0])
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: 4_096))
+        var samples: [Float] = []
+        // A read can return fewer frames than requested without reaching EOF.
+        while file.framePosition < file.length {
+            try file.read(into: buffer)
+            try #require(buffer.frameLength > 0)
+            let data = try #require(buffer.floatChannelData?[0])
+            samples.append(contentsOf: UnsafeBufferPointer(start: data, count: Int(buffer.frameLength)))
+        }
+
+        #expect(AVAudioFramePosition(samples.count) == file.length)
         #expect(file.processingFormat.sampleRate == 48_000)
         #expect(file.processingFormat.channelCount == 1)
-        return Array(UnsafeBufferPointer(start: samples, count: Int(buffer.frameLength)))
+        return samples
     }
 
     private func establishOutputFormat(_ writer: TrackFileWriter) throws {
