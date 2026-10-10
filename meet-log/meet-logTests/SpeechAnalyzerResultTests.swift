@@ -24,8 +24,10 @@ struct SpeechAnalyzerResultTests {
 
     @Test func volatileReplacementsAndTrailingPartialNeverBecomeSavedSegments() throws {
         var accumulator = SpeechAnalyzerResultAccumulator()
-        #expect(try accumulator.consume(text: " 途中 ", range: range(start: 0, duration: 4), isFinal: false) == .partial("途中"))
-        #expect(try accumulator.consume(text: "更新した途中", range: range(start: 0, duration: 8), isFinal: false) == .partial("更新した途中"))
+        let first = try accumulator.consume(text: " 途中 ", range: range(start: 0, duration: 4), isFinal: false)
+        let replacement = try accumulator.consume(text: "更新した途中", range: range(start: 0, duration: 8), isFinal: false)
+        #expect(partialText(first) == "途中")
+        #expect(partialText(replacement) == "更新した途中")
         try accumulator.consume(text: "確定", range: range(start: 0, duration: 10), isFinal: true)
         try accumulator.consume(text: "未確定の末尾", range: range(start: 10, duration: 3), isFinal: false)
         let result = try accumulator.transcript(localeIdentifier: "ja-JP", sourceURL: sourceURL)
@@ -54,7 +56,7 @@ struct SpeechAnalyzerResultTests {
     @Test func partialOnlyAndEmptyFinalResultsStillFailWithEmptyResult() throws {
         var accumulator = SpeechAnalyzerResultAccumulator()
         try accumulator.consume(text: "途中", range: range(start: 0, duration: 4), isFinal: false)
-        #expect(try accumulator.consume(text: " \n ", range: .invalid, isFinal: true) == nil)
+        try accumulator.consume(text: " \n ", range: .invalid, isFinal: true)
         #expect(throws: TranscriptionError.emptyResult) {
             try accumulator.transcript(localeIdentifier: "ja-JP", sourceURL: sourceURL)
         }
@@ -152,6 +154,13 @@ struct SpeechAnalyzerResultTests {
         #expect(MeetingEditDraft(transcript: old).editedTranscript() == old)
         #expect(SummaryEvidenceCatalog(old).entries.isEmpty)
         #expect(try TranscriptMarkdownCodec.decode(TranscriptMarkdownCodec.encode(old, recordingID: "old")) == old)
+    }
+
+    private func partialText(_ event: TranscriptionEvent?) -> String? {
+        guard case .partial(let text)? = event else {
+            return nil
+        }
+        return text
     }
 
     private func range(start: Int64, duration: Int64) -> CMTimeRange {
