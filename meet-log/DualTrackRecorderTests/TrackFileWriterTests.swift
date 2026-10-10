@@ -26,6 +26,24 @@ struct TrackFileWriterTests {
         expectMatchingSamples(streamed, reference)
     }
 
+    @Test(arguments: [44_100.0, 16_000.0], [31, 53, 97, 4_410])
+    func shortConvertedStreamsDoNotAddPaddingToTheTrack(sampleRate: Double, chunkSize: Int) throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let frames = Int(sampleRate / 10)
+        let reference = try renderPCM(in: directory, name: "large-short") { writer in
+            try establishOutputFormat(writer)
+            try writeSignal(writer, sampleRate: sampleRate, frames: frames, chunkSize: frames)
+        }
+        let streamed = try renderPCM(in: directory, name: "small-short") { writer in
+            try establishOutputFormat(writer)
+            try writeSignal(writer, sampleRate: sampleRate, frames: frames, chunkSize: chunkSize)
+        }
+
+        #expect(abs(streamed.count - 5_280) <= 2)
+        expectMatchingSamples(streamed, reference)
+    }
+
     @Test func formatChangesDrainBeforeTheNextConverterAndBeforePassthrough() throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
