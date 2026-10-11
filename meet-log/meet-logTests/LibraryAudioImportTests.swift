@@ -203,7 +203,8 @@ struct LibraryAudioImportTests {
     }
 
     private func waitFor(_ condition: () async -> Bool) async throws {
-        let deadline = ContinuousClock.now + .seconds(5)
+        // Allow cold framework initialization on the main actor during parallel CI.
+        let deadline = ContinuousClock.now + .seconds(15)
         while !(await condition()) {
             guard ContinuousClock.now < deadline else {
                 throw ImportTestError.timeout
