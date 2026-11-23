@@ -231,7 +231,7 @@ struct RecordingLibraryTests {
     }
 
     @MainActor
-    @Test func viewModelRemixesSelectedItemAndRefreshesLibrary() async throws {
+    @Test func viewModelRemixesSelectedItemAndUpdatesItsRow() async throws {
         let item = makeItem(id: "2026-05-19_12-00-00", mixdownExists: false, systemAudioExists: true)
         let mixedItem = makeItem(id: "2026-05-19_12-00-00", mixdownExists: true, systemAudioExists: true)
         let store = SequenceRecordingLibraryStore(results: [[item], [mixedItem]])

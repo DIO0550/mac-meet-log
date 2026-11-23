@@ -259,6 +259,291 @@ struct LibraryAsyncOwnershipTests {
         #expect(try await fixture.storage.transcript(for: fixture.a) == edited)
     }
 
+    @Test(arguments: [false, true])
+    func mixCompletionPreservesAnotherRecordingSummary(failingExport: Bool) async throws {
+        let fixture = Fixture()
+        var a = fixture.aNeedingMix
+        a.tags = ["keep"]
+        await fixture.seed([a, fixture.b])
+        let model = fixture.model()
+        await model.load()
+
+        let exportGate = SuspensionGate()
+        await fixture.mixdown.holdExport(to: a.mixdownURL, at: exportGate, failing: failingExport)
+        model.remixSelectedItem()
+        #expect(model.remixState == .mixing(a.id))
+        try await waitFor { await exportGate.isWaiting }
+
+        model.select(fixture.b)
+        try await waitFor { @MainActor in !model.isSummaryBusy }
+        let summaryGate = SuspensionGate()
+        await fixture.services.holdNextSummary(summaryGate)
+        model.runProcessing(.summary)
+        try await waitFor { await summaryGate.isWaiting }
+
+        // The scanner may return other items in a different order with older metadata.
+        let scannedA = fixture.aNeedingMix.withPublishedMix(duration: .seconds(42))
+        await fixture.library.setItems([fixture.b, scannedA])
+        await exportGate.release()
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(a.mixdownURL) }
+
+        #expect(model.selectedItem == fixture.b)
+        #expect(model.summaryState == .summarizing)
+        #expect(model.remixState == .idle)
+        #expect(model.items.map(\.id) == [a.id, fixture.b.id])
+        #expect(model.items.first?.tags == ["keep"])
+        #expect(await fixture.storage.savedSummaries.isEmpty)
+
+        await summaryGate.release()
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(fixture.b.mixdownURL) }
+        #expect(model.savedSummary?.summary == "generated B")
+        #expect(await fixture.storage.savedSummaries.map(\.item.mixdownURL) == [fixture.b.mixdownURL])
+
+        model.select(a)
+        if failingExport {
+            #expect(model.selectedItem == a)
+            #expect(model.remixState == .failed(a.id, ControlledMixdownService.Failure.exportFailed.localizedDescription))
+        } else {
+            let mixed = try #require(model.selectedItem)
+            #expect(mixed.mixdownStatus == .mixed)
+            #expect(mixed.duration == .seconds(42))
+            #expect(mixed.fileExistence.systemAudioExists)
+            #expect(PlaybackSource(item: mixed).audioURLs == [a.mixdownURL])
+            #expect(model.remixState == .idle)
+        }
+    }
+
+    @Test(arguments: [false, true])
+    func mixCompletionPreservesAnotherRecordingSavedResultRead(summaryRead: Bool) async throws {
+        let fixture = Fixture()
+        let a = fixture.aNeedingMix
+        await fixture.seed([a, fixture.b])
+        let model = fixture.model()
+        await model.load()
+
+        let exportGate = SuspensionGate()
+        await fixture.mixdown.holdExport(to: a.mixdownURL, at: exportGate)
+        model.remixSelectedItem()
+        try await waitFor { await exportGate.isWaiting }
+
+        let readGate = SuspensionGate()
+        await fixture.storage.holdNextRead(summary: summaryRead, gate: readGate, failing: false)
+        model.select(fixture.b)
+        try await waitFor { await readGate.isWaiting }
+
+        await fixture.library.setItems([a.withPublishedMix(duration: .seconds(11)), fixture.b])
+        await exportGate.release()
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(a.mixdownURL) }
+        #expect(model.items.first?.hasUsableMixdown == true)
+        #expect(model.selectedItem == fixture.b)
+        #expect(model.summaryState == .loadingSaved)
+
+        await readGate.release()
+        try await waitFor { @MainActor in !model.isSummaryBusy }
+        #expect(await fixture.storage.cancelledReads == 0)
+        expectB(model, fixture: fixture)
+    }
+
+    @Test(arguments: [false, true])
+    func unverifiedMixKeepsRowAndAllowsRetry(failingRead: Bool) async throws {
+        let fixture = Fixture()
+        let a = fixture.aNeedingMix
+        await fixture.seed([a])
+        let model = fixture.model()
+        await model.load()
+
+        let readGate = SuspensionGate()
+        if failingRead {
+            await fixture.library.holdNextRead(readGate, failing: true)
+        }
+        model.remixSelectedItem()
+        if failingRead {
+            try await waitFor { await readGate.isWaiting }
+            await readGate.release()
+        }
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(a.mixdownURL) }
+
+        #expect(model.selectedItem == a)
+        let verificationMessage = "作成したミックスを確認できませんでした。"
+        let readError = SummaryError.persistenceFailed("delayed enumeration error")
+        let message = failingRead ? "\(verificationMessage) \(readError.localizedDescription)" : verificationMessage
+        #expect(model.remixState == .failed(a.id, message))
+
+        await fixture.library.setItems([a.withPublishedMix(duration: nil)])
+        model.remixSelectedItem()
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(a.mixdownURL) }
+        #expect(await fixture.mixdown.destinations == [a.mixdownURL, a.mixdownURL])
+        #expect(model.selectedItem?.hasUsableMixdown == true)
+        #expect(model.selectedItem?.duration == nil)
+        #expect(model.remixState == .idle)
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func destinationChangeDiscardsMixUpdates(waitingOnRead: Bool, failing: Bool) async throws {
+        let fixture = Fixture()
+        let original = fixture.aNeedingMix
+        await fixture.seed([original])
+        let model = fixture.model()
+        await model.load()
+
+        let exportGate = SuspensionGate()
+        await fixture.mixdown.holdExport(to: original.mixdownURL, at: exportGate, failing: failing && !waitingOnRead)
+        model.remixSelectedItem()
+        try await waitFor { await exportGate.isWaiting }
+
+        let readGate = SuspensionGate()
+        if waitingOnRead {
+            await fixture.library.setItems([original.withPublishedMix(duration: .seconds(20))])
+            await fixture.library.holdNextRead(readGate, failing: failing)
+            await exportGate.release()
+            try await waitFor { await readGate.isWaiting }
+        }
+
+        let newDirectory = fixture.directory.appendingPathComponent("new")
+        let newRecording = Fixture.item(original.id, directory: newDirectory, needsMix: true)
+        fixture.directoryRevision += 1
+        await fixture.seed([newRecording])
+        await model.load()
+        let summaryGate = SuspensionGate()
+        await fixture.services.holdNextSummary(summaryGate)
+        model.runProcessing(.summary)
+        try await waitFor { await summaryGate.isWaiting }
+        let readsBeforeCompletion = await fixture.library.recordingsCallCount
+
+        if waitingOnRead {
+            await readGate.release()
+        } else {
+            await exportGate.release()
+        }
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(original.mixdownURL) }
+        #expect(await fixture.library.recordingsCallCount == readsBeforeCompletion)
+        #expect(model.items == [newRecording])
+        #expect(model.selectedItem == newRecording)
+        #expect(model.remixState == .idle)
+        #expect(model.summaryState == .summarizing)
+
+        await summaryGate.release()
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(newRecording.mixdownURL) }
+        #expect(model.savedSummary?.summary == "generated A")
+        #expect(await fixture.storage.savedSummaries.map(\.item.mixdownURL) == [newRecording.mixdownURL])
+    }
+
+    @Test(arguments: [false, true])
+    func returningToSameDestinationKeepsOldMixExecutionStale(failing: Bool) async throws {
+        let fixture = Fixture()
+        let original = fixture.aNeedingMix
+        await fixture.seed([original])
+        let model = fixture.model()
+        await model.load()
+
+        let exportGate = SuspensionGate()
+        await fixture.mixdown.holdExport(to: original.mixdownURL, at: exportGate, failing: failing)
+        model.remixSelectedItem()
+        try await waitFor { await exportGate.isWaiting }
+
+        fixture.directoryRevision += 1
+        let newDirectory = fixture.directory.appendingPathComponent("new")
+        await fixture.seed([Fixture.item(original.id, directory: newDirectory)])
+        await model.load()
+        fixture.directoryRevision += 1
+        await fixture.library.setItems([original])
+        await model.load()
+
+        let mixed = original.withPublishedMix(duration: .seconds(25))
+        if !failing {
+            await fixture.library.setItems([mixed])
+        }
+        await exportGate.release()
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(original.mixdownURL) }
+
+        #expect(model.items == [original])
+        #expect(model.remixState == .idle)
+        if !failing {
+            await model.load()
+            #expect(model.items == [mixed])
+        }
+    }
+
+    @Test func slowMixReadPreservesFasterMixAndRejectsDuplicateStart() async throws {
+        let fixture = Fixture()
+        let a = fixture.aNeedingMix
+        let c = Fixture.item("C", directory: fixture.directory, needsMix: true)
+        await fixture.seed([a, c])
+        let model = fixture.model()
+        await model.load()
+
+        let aExportGate = SuspensionGate()
+        let aReadGate = SuspensionGate()
+        await fixture.mixdown.holdExport(to: a.mixdownURL, at: aExportGate)
+        model.remixSelectedItem()
+        model.remixSelectedItem()
+        try await waitFor { await aExportGate.isWaiting }
+        let mixedA = a.withPublishedMix(duration: .seconds(20))
+        await fixture.library.setItems([mixedA, c])
+        await fixture.library.holdNextRead(aReadGate)
+        await aExportGate.release()
+        try await waitFor { await aReadGate.isWaiting }
+        #expect(model.remixState == .mixing(a.id))
+        model.remixSelectedItem()
+
+        model.select(c)
+        let cExportGate = SuspensionGate()
+        await fixture.mixdown.holdExport(to: c.mixdownURL, at: cExportGate)
+        model.remixSelectedItem()
+        #expect(model.remixState == .mixing(c.id))
+        try await waitFor { await cExportGate.isWaiting }
+        let mixedC = c.withPublishedMix(duration: .seconds(30))
+        await fixture.library.setItems([mixedA, mixedC])
+        await cExportGate.release()
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(c.mixdownURL) }
+        #expect(model.items == [a, mixedC])
+
+        await aReadGate.release()
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(a.mixdownURL) }
+        #expect(await fixture.mixdown.destinations == [a.mixdownURL, c.mixdownURL])
+        #expect(model.items == [mixedA, mixedC])
+        #expect(model.selectedItem == mixedC)
+        #expect(model.remixState == .idle)
+    }
+
+    @Test(arguments: [false, true])
+    func refreshKeepsAPublishedMixOnlyForRetainedItems(retainsRecording: Bool) async throws {
+        let fixture = Fixture()
+        let a = fixture.aNeedingMix
+        await fixture.seed([a, fixture.b])
+        let model = fixture.model()
+        await model.load()
+
+        let exportGate = SuspensionGate()
+        await fixture.mixdown.holdExport(to: a.mixdownURL, at: exportGate)
+        model.remixSelectedItem()
+        try await waitFor { await exportGate.isWaiting }
+
+        let refreshGate = SuspensionGate()
+        if !retainsRecording {
+            await fixture.library.setItems([fixture.b])
+        }
+        await fixture.library.holdNextRead(refreshGate)
+        model.refresh()
+        try await waitFor { await refreshGate.isWaiting }
+
+        let mixed = a.withPublishedMix(duration: nil)
+        await fixture.library.setItems([mixed, fixture.b])
+        await exportGate.release()
+        try await waitFor { @MainActor in !LibraryActivity.isBusy(a.mixdownURL) }
+        #expect(model.items.first == mixed)
+
+        await refreshGate.release()
+        try await waitFor { @MainActor in !model.isSummaryBusy }
+        if retainsRecording {
+            #expect(model.items == [mixed, fixture.b])
+            #expect(model.selectedItem == mixed)
+        } else {
+            #expect(model.items == [fixture.b])
+            expectB(model, fixture: fixture)
+        }
+    }
+
     private func expectB(_ model: LibraryViewModel, fixture: Fixture) {
         #expect(model.selectedItem == fixture.b)
         #expect(model.transcript == fixture.transcript(fixture.b))
@@ -285,23 +570,31 @@ struct LibraryAsyncOwnershipTests {
 private enum WaitError: Error { case timeout }
 
 @MainActor
-private struct Fixture {
+private final class Fixture {
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     let storage = ControlledSummaryStore()
     let services = ControlledProcessingServices()
     let library = ControlledLibraryStore()
+    let mixdown = ControlledMixdownService()
+    var directoryRevision = 0
     var a: RecordingLibraryItem { Self.item("A", directory: directory) }
     var b: RecordingLibraryItem { Self.item("B", directory: directory) }
+    var aNeedingMix: RecordingLibraryItem { Self.item("A", directory: directory, needsMix: true) }
 
-    func seed() async {
-        await library.setItems([a, b])
-        await storage.seed(transcript(a), summary: summary(a), for: a)
-        await storage.seed(transcript(b), summary: summary(b), for: b)
+    func seed(_ items: [RecordingLibraryItem]? = nil) async {
+        let items = items ?? [a, b]
+        await library.setItems(items)
+        for item in items {
+            await storage.seed(transcript(item), summary: summary(item), for: item)
+        }
     }
 
     func model() -> LibraryViewModel {
-        LibraryViewModel(store: library, transcriptionService: services, summaryService: services,
-                         summaryStore: storage, screenOCRService: services)
+        LibraryViewModel(
+            store: library, transcriptionService: services, summaryService: services,
+            summaryStore: storage, mixdownService: mixdown, screenOCRService: services,
+            directoryRevision: { self.directoryRevision }
+        )
     }
 
     func transcript(_ item: RecordingLibraryItem, text: String? = nil) -> TranscriptResult {
@@ -314,13 +607,18 @@ private struct Fixture {
                        transcriptSourceURL: item.mixdownURL, createdAt: Date(timeIntervalSince1970: 1))
     }
 
-    static func item(_ id: String, directory: URL) -> RecordingLibraryItem {
-        RecordingLibraryItem(id: id, title: "meeting \(id)", createdAt: Date(timeIntervalSince1970: 1),
-                             duration: .seconds(10), mixdownURL: directory.appendingPathComponent("\(id)_mix.m4a"),
-                             systemAudioURL: nil, microphoneURL: nil,
-                             screenCaptureURL: directory.appendingPathComponent("\(id)_screen.mp4"),
-                             fileExistence: RecordingLibraryFileExistence(mixdownExists: true, systemAudioExists: false,
-                                                                        microphoneExists: false, screenCaptureExists: true))
+    static func item(_ id: String, directory: URL, needsMix: Bool = false) -> RecordingLibraryItem {
+        let system = needsMix ? directory.appendingPathComponent("\(id)_system.m4a") : nil
+        return RecordingLibraryItem(
+            id: id, title: "meeting \(id)", createdAt: Date(timeIntervalSince1970: 1),
+            duration: .seconds(10), mixdownURL: directory.appendingPathComponent("\(id)_mix.m4a"),
+            systemAudioURL: system, microphoneURL: nil,
+            screenCaptureURL: directory.appendingPathComponent("\(id)_screen.mp4"),
+            fileExistence: RecordingLibraryFileExistence(
+                mixdownExists: !needsMix, systemAudioExists: needsMix, microphoneExists: false, screenCaptureExists: true
+            ),
+            mixdownStatus: needsMix ? .needsMix : .mixed
+        )
     }
 }
 
@@ -343,6 +641,7 @@ private actor ControlledLibraryStore: RecordingLibraryStoring {
     private var items: [RecordingLibraryItem] = []
     private var gate: SuspensionGate?
     private var failing = false
+    private(set) var recordingsCallCount = 0
 
     func setItems(_ items: [RecordingLibraryItem]) { self.items = items }
 
@@ -352,6 +651,7 @@ private actor ControlledLibraryStore: RecordingLibraryStoring {
     }
 
     func recordings() async throws -> [RecordingLibraryItem] {
+        recordingsCallCount += 1
         let captured = items
         let suspension = gate
         let failure = failing
@@ -362,6 +662,37 @@ private actor ControlledLibraryStore: RecordingLibraryStoring {
             throw SummaryError.persistenceFailed("delayed enumeration error")
         }
         return captured
+    }
+}
+
+private actor ControlledMixdownService: RecordingLibraryMixdownServicing {
+    enum Failure: LocalizedError {
+        case exportFailed
+
+        var errorDescription: String? { "Mix export failed" }
+    }
+
+    private struct PendingExport {
+        let gate: SuspensionGate
+        let failing: Bool
+    }
+
+    private var pending: [URL: PendingExport] = [:]
+    private(set) var destinations: [URL] = []
+
+    func holdExport(to url: URL, at gate: SuspensionGate, failing: Bool = false) {
+        pending[url] = PendingExport(gate: gate, failing: failing)
+    }
+
+    func export(systemAudioURL: URL?, microphoneURL: URL?, destinationURL: URL) async throws -> URL {
+        destinations.append(destinationURL)
+        if let export = pending.removeValue(forKey: destinationURL) {
+            await export.gate.wait()
+            if export.failing {
+                throw Failure.exportFailed
+            }
+        }
+        return destinationURL
     }
 }
 

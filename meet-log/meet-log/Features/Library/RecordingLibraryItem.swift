@@ -31,14 +31,14 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
 
     var storageStem: String { Self.mixdownStem(from: mixdownURL) ?? id }
     let createdAt: Date
-    let duration: Duration?
+    private(set) var duration: Duration?
     let sessionDirectoryURL: URL
     let mixdownURL: URL
     let systemAudioURL: URL?
     let microphoneURL: URL?
     let screenCaptureURL: URL?
-    let fileExistence: RecordingLibraryFileExistence
-    let mixdownStatus: MixdownStatus
+    private(set) var fileExistence: RecordingLibraryFileExistence
+    private(set) var mixdownStatus: MixdownStatus
 
     var dateText: String {
         Self.dateFormatter.string(from: createdAt)
@@ -95,6 +95,19 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
 
     var canRemix: Bool {
         mixdownStatus == .needsMix
+    }
+
+    func withPublishedMix(duration: Duration?) -> RecordingLibraryItem {
+        var item = self
+        item.duration = duration
+        item.fileExistence = RecordingLibraryFileExistence(
+            mixdownExists: true,
+            systemAudioExists: fileExistence.systemAudioExists,
+            microphoneExists: fileExistence.microphoneExists,
+            screenCaptureExists: fileExistence.screenCaptureExists
+        )
+        item.mixdownStatus = .mixed
+        return item
     }
 
     var existingSystemAudioURL: URL? {
@@ -351,6 +364,17 @@ struct RecordingLibraryItem: Equatable, Identifiable, Sendable {
         formatter.timeStyle = .short
         return formatter
     }()
+}
+
+// The same recording ID can exist in more than one destination.
+struct RecordingKey: Hashable, Sendable {
+    let id: RecordingLibraryItem.ID
+    let mixdownURL: URL
+
+    init(_ item: RecordingLibraryItem) {
+        id = item.id
+        mixdownURL = item.mixdownURL
+    }
 }
 
 struct RecordingLibraryFileExistence: Equatable, Sendable {

@@ -3,10 +3,6 @@ import Combine
 import DualTrackRecorder
 import Foundation
 
-protocol RecordingLibraryMixdownServicing: Sendable {
-    func export(systemAudioURL: URL?, microphoneURL: URL?, destinationURL: URL) async throws -> URL
-}
-
 extension RecordingMixdownService: RecordingLibraryMixdownServicing {}
 
 @MainActor
@@ -120,8 +116,7 @@ final class LibraryViewModel: ObservableObject {
     private func registerImportedAudio(_ item: RecordingLibraryItem) {
         // Merge into the current list without refreshing/cancelling other recordings.
         refreshTask?.cancel()
-        refreshTask = nil
-        refreshRunID = nil
+        resetRefresh()
         cancelSummaryLoad()
         stopPlayback()
         searchQuery = ""
@@ -151,22 +146,16 @@ final class LibraryViewModel: ObservableObject {
         case failed(RecordingLibraryItem.ID, String)
     }
 
+    private struct RemixStatus {
+        let directoryRevision: Int
+        let state: RemixState
+    }
+
     struct ProcessingConfirmation: Identifiable {
         let id = UUID()
         let stage: LibraryProcessingStage
         let template: SummaryTemplate?
         let message: String
-    }
-
-    // IDs can repeat in a different destination. Include the captured storage URL.
-    private struct RecordingKey: Hashable, Sendable {
-        let id: RecordingLibraryItem.ID
-        let mixdownURL: URL
-
-        init(_ item: RecordingLibraryItem) {
-            id = item.id
-            mixdownURL = item.mixdownURL
-        }
     }
 
     private struct Run: Equatable, Sendable {
@@ -333,7 +322,14 @@ final class LibraryViewModel: ObservableObject {
         get { selectedResult?.transcript }
         set { updateSelectedResult { $0.transcript = newValue } }
     }
-    @Published private(set) var remixState: RemixState = .idle
+    @Published private var remixStatuses: [RecordingKey: RemixStatus] = [:]
+    var remixState: RemixState {
+        guard let item = selectedItem, let status = remixStatuses[RecordingKey(item)],
+              status.directoryRevision == currentDirectoryRevision() else {
+            return .idle
+        }
+        return status.state
+    }
     @Published var selectedSummaryTemplateID = SummaryTemplate.builtIn.id
     @Published var searchQuery = "" {
         didSet {
@@ -352,7 +348,8 @@ final class LibraryViewModel: ObservableObject {
     private let screenEnricher: ScreenTranscriptEnricher
     private let summaryService: TranscriptSummaryService
     private let summaryStore: MeetingSummaryStoring
-    private let mixdownService: RecordingLibraryMixdownServicing
+    private let createRecordingMix: CreateRecordingMix
+    private let currentDirectoryRevision: @MainActor () -> Int
     private let searchService: LibrarySearchService
     private var searchTask: Task<Void, Never>?
     private var summaryLoadTask: Task<Void, Never>?
@@ -360,6 +357,7 @@ final class LibraryViewModel: ObservableObject {
     private var processingTasks: [RecordingKey: (run: Run, task: Task<Void, Never>)] = [:]
     private var refreshTask: Task<Void, Never>?
     @Published private var refreshRunID: UUID?
+    private var completedMixesDuringRefresh: [RecordingKey: CreateRecordingMix.CompletedMix] = [:]
 
     convenience init() {
         self.init(
@@ -394,7 +392,8 @@ final class LibraryViewModel: ObservableObject {
         screenOCRService: ScreenOCRServicing = ScreenOCRService(),
         trashService: LibraryTrashService = LibraryTrashService(),
         audioImporter: LibraryAudioImporting? = nil,
-        importDirectory: (@MainActor () throws -> URL)? = nil
+        importDirectory: (@MainActor () throws -> URL)? = nil,
+        directoryRevision: (@MainActor () -> Int)? = nil
     ) {
         self.store = store
         self.audioImporter = audioImporter ?? LibraryAudioImportService()
@@ -404,7 +403,11 @@ final class LibraryViewModel: ObservableObject {
         self.screenEnricher = ScreenTranscriptEnricher(service: screenOCRService)
         self.summaryService = summaryService
         self.summaryStore = summaryStore
-        self.mixdownService = mixdownService
+        let currentDirectoryRevision: @MainActor () -> Int = directoryRevision ?? { AppSettings.shared.directoryRevision }
+        self.currentDirectoryRevision = currentDirectoryRevision
+        self.createRecordingMix = CreateRecordingMix(
+            exporter: mixdownService, store: store, directoryRevision: currentDirectoryRevision
+        )
         self.searchService = searchService ?? LibrarySearchService(summaryStore: summaryStore)
     }
 
@@ -450,14 +453,9 @@ final class LibraryViewModel: ObservableObject {
     }
 
     var isRemixingSelectedItem: Bool {
-        guard let selectedItem else {
-            return false
-        }
-
-        if case .mixing(selectedItem.id) = remixState {
+        if case .mixing = remixState {
             return true
         }
-
         return false
     }
 
@@ -877,28 +875,40 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func remixSelectedItem() {
-        guard metadataItem == nil, trashPlan == nil, let selectedItem, selectedItem.canRemix, !isRemixingSelectedItem else {
+        guard metadataItem == nil, trashPlan == nil, let item = selectedItem else {
             return
         }
-
-        let item = selectedItem
-        remixState = .mixing(item.id)
-        let activity = LibraryActivity.begin(item.mixdownURL)
-
-        Task {
-            defer { LibraryActivity.end(activity) }
-            do {
-                _ = try await mixdownService.export(
-                    systemAudioURL: item.existingSystemAudioURL,
-                    microphoneURL: item.existingMicrophoneURL,
-                    destinationURL: item.mixdownURL
-                )
-                remixState = .idle
-                await refresh(shouldShowLoading: false)
-            } catch {
-                remixState = .failed(item.id, error.localizedDescription)
-            }
+        createRecordingMix.start(for: item) { [weak self] update in
+            self?.applyRemixUpdate(update)
         }
+    }
+
+    private func applyRemixUpdate(_ update: CreateRecordingMix.Update) {
+        switch update {
+        case let .started(recording, revision):
+            remixStatuses[recording] = RemixStatus(directoryRevision: revision, state: .mixing(recording.id))
+        case let .completed(mix):
+            remixStatuses[mix.recording] = nil
+            publishMix(mix)
+        case let .failed(recording, revision, error):
+            remixStatuses[recording] = RemixStatus(
+                directoryRevision: revision, state: .failed(recording.id, error.localizedDescription)
+            )
+        }
+    }
+
+    private func publishMix(_ mix: CreateRecordingMix.CompletedMix) {
+        if refreshRunID != nil {
+            // The in-flight scan may have captured the row before the mix was written.
+            completedMixesDuringRefresh[mix.recording] = mix
+        }
+
+        var updatedItems = items
+        guard let index = updatedItems.firstIndex(where: { RecordingKey($0) == mix.recording }) else {
+            return
+        }
+        updatedItems[index] = updatedItems[index].withPublishedMix(duration: mix.duration)
+        state = .loaded(updatedItems)
     }
 
     private func refresh(shouldShowLoading: Bool) async {
@@ -923,6 +933,9 @@ final class LibraryViewModel: ObservableObject {
         searchTask?.cancel()
         searchProgress = nil
         stopPlayback()
+        completedMixesDuringRefresh.removeAll()
+        let revision = currentDirectoryRevision()
+        remixStatuses = remixStatuses.filter { $0.value.directoryRevision == revision }
 
         let request = UUID()
         refreshRunID = request
@@ -935,20 +948,19 @@ final class LibraryViewModel: ObservableObject {
     private func performRefresh(request: UUID) async {
         defer {
             if refreshRunID == request {
-                refreshRunID = nil
-                refreshTask = nil
+                resetRefresh()
             }
         }
         do {
-            let loadedItems = try await store.recordings()
+            let scannedItems = try await store.recordings()
             guard refreshRunID == request, !Task.isCancelled,
                   editDraft == nil, metadataItem == nil, trashPlan == nil else {
                 return
             }
+            let loadedItems = applyingCompletedMixes(to: scannedItems)
             reconcileSelection(with: loadedItems)
             state = loadedItems.isEmpty ? .empty : .loaded(loadedItems)
-            refreshRunID = nil
-            refreshTask = nil
+            resetRefresh()
             loadSummaryForSelectedItem()
             scheduleSearch()
         } catch {
@@ -957,6 +969,23 @@ final class LibraryViewModel: ObservableObject {
             }
             state = .failed(error.localizedDescription)
         }
+    }
+
+    private func applyingCompletedMixes(to scannedItems: [RecordingLibraryItem]) -> [RecordingLibraryItem] {
+        let revision = currentDirectoryRevision()
+        return scannedItems.map { item in
+            guard !item.hasUsableMixdown, let mix = completedMixesDuringRefresh[RecordingKey(item)],
+                  mix.directoryRevision == revision else {
+                return item
+            }
+            return item.withPublishedMix(duration: mix.duration)
+        }
+    }
+
+    private func resetRefresh() {
+        refreshRunID = nil
+        refreshTask = nil
+        completedMixesDuringRefresh.removeAll()
     }
 
     private func scheduleSearch() {
